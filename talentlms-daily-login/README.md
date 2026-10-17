@@ -1,36 +1,19 @@
-# TalentLMS Daily Login (Windows)
+# TalentLMS automated login — weekday schedule (Windows)
 
-Website: https://intersect-alfharon.talentlms.com/plus/my/training
+**Schedule:** starts Monday **19 October 2026**, **08:00 AM Windows local time**, repeats **Monday through Friday only**. No weekend logins.
 
-## Setup
+**My Training:** https://intersect-alfharon.talentlms.com/plus/my/training
 
-1. Install **Python 3** from https://www.python.org/downloads/windows/ (with the Python launcher).
-2. Extract the entire ZIP into a permanent folder on your Windows PC, e.g. `Documents\TalentLMS-Daily-Login`. Do not delete or move the folder after scheduling.
-3. Double-click **START-HERE.bat**. It installs Playwright/Chromium and saves **your own credentials** using Windows Credential Manager.
-4. A visible browser opens once for a test login. If the site asks for 2FA or CAPTCHA, solve it yourself in that window. If login succeeds, the script will close the browser.
-5. Choose your preferred daily time in `HH:mm` (e.g. `08:00` or `19:30`). The script creates a Windows Task Scheduler task called `TalentLMS Daily Login`.
+## Install
 
-## How it operates
+**Preferred complete package:** download `TalentLMS-Weekdays-08AM-Windows.zip` from the ChatGPT conversation where this schedule was generated. This repository's original `TalentLMS-Daily-Login-Windows.zip` is the **older daily version** and is retained for history; do not use it alone to install the new weekday schedule.
 
-At the chosen time Windows opens a headless browser, navigates to the **exact My Training URL** above, uses an existing session if possible, otherwise submits the securely stored username/password, and checks that it reached My Training. It then closes the browser. It does **not** complete lessons or mark attendance/completion. Login events are saved to:
+1. Install Python 3 for Windows from https://www.python.org/downloads/windows/.
+2. Extract the **updated weekday ZIP** into a permanent folder.
+3. Run `START-HERE.bat`; it installs Playwright, saves credentials in Windows Credential Manager and tests the login. The schedule installs automatically after a successful test.
+4. To change an already-installed old daily schedule without re-entering your password, copy `SCHEDULE-WEEKDAYS.ps1`, `UPDATE-SCHEDULE.bat`, `CHECK-SCHEDULE.ps1` and `CHECK-SCHEDULE.bat` from this repository into the same folder as the previous script, then run `UPDATE-SCHEDULE.bat`.
+5. Run `CHECK-SCHEDULE.bat` and check the next trigger (or inspect `Task Scheduler Library > TalentLMS Daily Login` using `taskschd.msc`).
 
-`%LOCALAPPDATA%\TalentLMSDailyLogin\activity.log`
+The **Task Scheduler name remains `TalentLMS Daily Login`** intentionally, so the new Monday-Friday trigger replaces the previous daily trigger.
 
-The task uses **your own Windows user** and runs when you are signed into Windows. Your computer must be awake and connected to the internet. Windows may attempt a missed run when it becomes available. It won't automatically wake a fully powered-off PC.
-
-### Helper files
-
-- `START-HERE.bat` — installation, credentials, first test and daily schedule.
-- `SET-LOGIN.bat` — change your saved credentials.
-- `RUN-VISIBLE-TEST.bat` — debug login with a visible browser (2FA may be handled manually).
-- `RUN-NOW.bat` — run the same headless login used by Task Scheduler.
-- `SCHEDULE-DAILY.ps1` — change the scheduled time (open PowerShell inside this folder and run with `powershell -ExecutionPolicy Bypass -File .\SCHEDULE-DAILY.ps1`).
-- `REMOVE-LOGIN.bat` — unregister schedule and clear stored credentials + browser cookies.
-
-## Privacy and limitations
-
-- **Never send your password to anyone.** `keyring` stores credentials in Windows Credential Manager, not in plaintext files or task arguments.
-- The dedicated browser profile is at `%LOCALAPPDATA%\TalentLMSDailyLogin\browser-profile` and contains session cookies. Protect your Windows account, and use `REMOVE-LOGIN.bat` to clear it when finished.
-- If the portal requires CAPTCHA, email verification, authenticator codes, or company single sign-on, unattended login may not be possible. Run the visible test to handle prompts manually; the script **does not bypass security checks**.
-- Login selectors are based on common TalentLMS forms, not a live authenticated inspection of your private portal. If its form differs, adjust `talentlms_login.py` or share a screenshot of the login screen (with no credentials).
-- Automation must be allowed by your training provider's policies.
+The PC must be awake, online and logged into Windows at 08:00. Missed runs are skipped, not run during weekends. This only signs in; it does not complete training lessons. Passwords and browser-session cookies are not checked into GitHub. Unattended login may fail if CAPTCHA, one-time codes or SSO verification are required.
