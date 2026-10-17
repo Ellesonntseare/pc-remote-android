@@ -1,0 +1,71 @@
+name: TalentLMS Daily Login and Report
+
+on:
+  schedule:
+    # Every day at 08:00 in South Africa. Weekend runs report NOT_SCHEDULED.
+    - cron: '0 8 * * *'
+      timezone: Africa/Johannesburg
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: talentlms-login-and-report
+  cancel-in-progress: false
+
+jobs:
+  check-login:
+    name: Check TalentLMS and publish daily report
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Check out private script branch
+        uses: actions/checkout@v4
+        with:
+          ref: talentlms-daily-login
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Determine whether a login is due
+        id: plan
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          TALENTLMS_USERNAME: ${{ secrets.TALENTLMS_USERNAME }}
+          TALENTLMS_PASSWORD: ${{ secrets.TALENTLMS_PASSWORD }}
+        run: python talentlms-daily-login/cloud_talentlms/plan.py
+
+      - name: Install Chromium on login days only
+        if: steps.plan.outputs.should_login == 'true'
+        id: dependencies
+        run: |
+          python -m pip install --disable-pip-version-check 'playwright>=1.55,<2'
+          python -m playwright install --with-deps chromium
+
+      - name: Sign in and verify My Training
+        id: signin
+        if: steps.plan.outputs.should_login == 'true'
+        continue-on-error: true
+        env:
+          TALENTLMS_USERNAME: ${{ secrets.TALENTLMS_USERNAME }}
+          TALENTLMS_PASSWORD: ${{ secrets.TALENTLMS_PASSWORD }}
+        run: python talentlms-daily-login/cloud_talentlms/login.py
+
+      - name: Write daily private report
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: python talentlms-daily-login/cloud_talentlms/report.py
+
+      - name: Set success/failure status
+        if: always()
+        run: python talentlms-daily-login/cloud_talentlms/evaluate.py
