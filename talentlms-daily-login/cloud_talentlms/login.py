@@ -71,6 +71,61 @@ def wait_until_verified(page, wait_seconds: int = 18) -> bool:
     return False
 
 
+def safe_page_category(page):
+    """Report only a coarse page category; never include URL query, text or credentials."""
+    parsed = urlparse(page.url)
+    if parsed.hostname != HOST or parsed.scheme != 'https':
+        return 'EXTERNAL_AUTH'
+    route = parsed.path.lower().rstrip('/')
+    if route == '/plus/my/training':
+        return 'TRAINING'
+    if '/login' in route or 'signin' in route or 'ssologin' in route:
+        return 'LOGIN'
+    if route.startswith('/plus/my/') or route.startswith('/my/') or route.startswith('/plus/dashboard'):
+        return 'OTHER_ACCOUNT_PAGE'
+    return 'OTHER_TALENTLMS_PAGE'
+
+
+def authentication_signals(page):
+    """Only boolean signals; never save screenshots, DOM, cookies or user data."""
+    try:
+        text = page.locator('body').inner_text(timeout=2500).lower()
+    except Exception:
+        text = ''
+    invalid = any(term in text for term in (
+        'incorrect username', 'incorrect password', 'wrong password',
+        'invalid username or password', 'invalid credentials',
+        'username or password is incorrect', 'email or password is incorrect',
+        'credentials do not match', 'login failed', 'authentication failed',
+    ))
+    challenge = any(term in text for term in (
+        'captcha', 'verification code', 'two-factor authentication',
+        'authenticator app', 'check your inbox', 'security code',
+        'one-time password', 'verify your identity',
+    ))
+    try:
+        password_visible = first_visible(page, ['input[type="password"]']) is not None
+    except Exception:
+        password_visible = False
+    return invalid, challenge, password_visible
+
+
+def fail_with_diagnostics(page):
+    category = safe_page_category(page)
+    invalid, challenge, password_visible = authentication_signals(page)
+    if invalid:
+        raise LoginError('CREDENTIALS_REJECTED', 'TalentLMS displayed an incorrect-credentials message. Verify GitHub secret values.')
+    if challenge:
+        raise LoginError('HUMAN_VERIFICATION', 'TalentLMS requested an interactive verification step.')
+    if category == 'EXTERNAL_AUTH':
+        raise LoginError('EXTERNAL_AUTH_REQUIRED', 'Sign-in redirected to an external authentication service. The stored TalentLMS password was not sent there.')
+    if category == 'LOGIN':
+        raise LoginError('STILL_AT_LOGIN', 'The browser remained at the TalentLMS sign-in page after submission (password field visible: ' + ('yes' if password_visible else 'no') + '). Check username, password, or sign-in requirements.')
+    if category == 'TRAINING':
+        raise LoginError('TRAINING_PAGE_UNRECOGNIZED', 'The browser reached the correct My Training URL but the expected authenticated course interface was not recognized.')
+    raise LoginError('REDIRECT_NOT_VERIFIED', 'The browser ended at ' + category + ' instead of a verified My Training page. Login may have succeeded on a different route or further steps may be needed.')
+
+
 def find_credentials_fields(page):
     username = first_visible(page, [
         'input[autocomplete="username"]', 'input[type="email"]',
@@ -112,6 +167,8 @@ def attempt_login(username: str, password: str) -> None:
                     if first_visible(page, ['input[type="password"]']):
                         break
                     time.sleep(0.4)
+            if safe_page_category(page) == 'EXTERNAL_AUTH':
+                raise LoginError('EXTERNAL_AUTH_REQUIRED', 'Login redirected to a different identity provider. Credentials were not entered into that provider.')
             username_field, password_field = find_credentials_fields(page)
             if username_field is None or password_field is None:
                 raise LoginError('FORM_UNAVAILABLE', 'The portal did not show a standard username/password form (possibly SSO).')
@@ -124,19 +181,19 @@ def attempt_login(username: str, password: str) -> None:
                     page.reload(wait_until='domcontentloaded', timeout=45000)
                     if wait_until_verified(page, 12):
                         return
-                path = urlparse(page.url).path
-                if path.startswith('/plus/my/') and not safe_training_url(page.url):
+                category = safe_page_category(page)
+                invalid, challenge, password_visible = authentication_signals(page)
+                if invalid:
+                    raise LoginError('CREDENTIALS_REJECTED', 'TalentLMS displayed an incorrect-credentials message. Verify the saved GitHub secrets.')
+                if challenge:
+                    raise LoginError('HUMAN_VERIFICATION', 'TalentLMS requested an interactive verification step.')
+                if category == 'EXTERNAL_AUTH':
+                    raise LoginError('EXTERNAL_AUTH_REQUIRED', 'Login redirected to a different identity provider. Cannot send saved credentials outside the configured TalentLMS domain.')
+                if category == 'OTHER_ACCOUNT_PAGE' and not password_visible:
                     page.goto(TARGET, wait_until='domcontentloaded', timeout=45000)
                 else:
-                    visible_text = page.locator('body').inner_text(timeout=3000).lower()
-                    if any(x in visible_text for x in (
-                        'captcha', 'verification code', 'two-factor',
-                        'authenticator', 'check your inbox', 'security code',
-                        'one-time password',
-                    )):
-                        raise LoginError('HUMAN_VERIFICATION', 'TalentLMS requested CAPTCHA or human verification.')
                     time.sleep(1)
-            raise LoginError('LOGIN_NOT_VERIFIED', 'Could not confirm the authenticated My Training page within the timeout.')
+            fail_with_diagnostics(page)
         finally:
             context.close()
             browser.close()
