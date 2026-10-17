@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07090f">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon.svg">
+<title>PC Remote</title>
+<style>
+:root{--bg:#07090f;--panel:#10131c;--panel2:#151925;--line:rgba(255,255,255,.08);--text:#f7f8fb;--muted:#8b93a6;--blue:#4f7cff;--green:#37d996;--red:#ff5361;--amber:#ffb84d;--purple:#a879ff;--shadow:0 24px 70px rgba(0,0,0,.4)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html{background:var(--bg)}body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% -10%,#17213d 0,#0b0f19 34%,#07090f 70%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:18px 16px 42px}button,input{font:inherit}.app{width:100%;max-width:480px;margin:auto}.topbar{display:flex;align-items:center;justify-content:space-between;margin:4px 2px 18px}.brand{display:flex;gap:11px;align-items:center}.brandmark{width:38px;height:38px;border:1px solid var(--line);background:linear-gradient(145deg,#1a2440,#0d111b);border-radius:12px;display:grid;place-items:center;box-shadow:0 8px 25px #0006}.brandmark svg{width:20px}.brandtext strong{display:block;font-size:15px;letter-spacing:.2px}.brandtext span{display:block;color:var(--muted);font-size:11px;margin-top:2px}.connection{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--line);background:#0d1119cc;border-radius:999px;color:#b8c0d0;font-size:11px}.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green)}
+.card{border:1px solid var(--line);background:linear-gradient(145deg,rgba(21,25,37,.94),rgba(11,14,22,.94));border-radius:24px;box-shadow:var(--shadow)}.hero{padding:22px;margin-bottom:13px;position:relative;overflow:hidden}.hero:after{content:"";position:absolute;width:180px;height:180px;border-radius:50%;right:-75px;top:-80px;background:#4f7cff1a;filter:blur(4px)}.eyebrow{color:#8390aa;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;font-weight:800}.hero h1{font-size:27px;line-height:1.05;margin:8px 0 5px;letter-spacing:-.8px}.hero p{margin:0;color:var(--muted);font-size:13px}.online{display:inline-flex;align-items:center;gap:6px;color:#b7f6dd;font-size:11px;margin-top:16px}.heroactions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:18px}.quick{border:1px solid var(--line);background:#171c29;border-radius:15px;color:#dce2ee;padding:12px;text-align:left;font-size:12px;font-weight:700}.quick span{display:block;color:var(--muted);font-size:10px;font-weight:500;margin-top:3px}
+.section{margin:20px 0 9px;display:flex;align-items:center;justify-content:space-between}.section h2{font-size:12px;text-transform:uppercase;letter-spacing:1.4px;color:#aeb6c7;margin:0}.section small{font-size:10px;color:#687287}.stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px}.stat{padding:14px;border:1px solid var(--line);background:#0e121b;border-radius:17px}.statlabel{color:#707a8f;font-size:10px;text-transform:uppercase;letter-spacing:.8px}.statvalue{font-size:18px;font-weight:800;margin-top:5px}.bar{height:4px;background:#252b39;border-radius:99px;margin-top:9px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:var(--blue);border-radius:99px;transition:width .3s}.uptime .statvalue{font-size:14px;margin-top:8px}
+.power{display:grid;grid-template-columns:1fr 1fr;gap:10px}.action{position:relative;border:1px solid var(--line);border-radius:20px;min-height:92px;padding:16px;text-align:left;color:white;background:#121722;overflow:hidden}.action:active,.quick:active,.media:active,.navbtn:active{transform:scale(.98)}.action .ico{font-size:21px;margin-bottom:12px}.action strong{display:block;font-size:13px}.action span{display:block;color:#798399;font-size:10px;margin-top:3px}.shutdown{background:linear-gradient(145deg,#2a131a,#151017);border-color:#ff536133}.shutdown .ico{color:var(--red)}.restart{background:linear-gradient(145deg,#2b2112,#16130e)}.restart .ico{color:var(--amber)}.sleep .ico{color:var(--blue)}.lock .ico{color:var(--purple)}.neutral .ico{color:#b7bfd0}.cancel{grid-column:span 2;min-height:58px;text-align:center;padding:11px}
+.mediaWrap{padding:14px}.mediaGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.media{height:58px;border:1px solid var(--line);background:#171c28;color:#e9edf5;border-radius:15px;font-size:18px}.media.play{background:linear-gradient(145deg,#304d9c,#1a2a5a);border-color:#557bff55}.media small{display:block;font-size:9px;color:#7e879a;margin-top:3px}
+.activity{padding:15px}.activityHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}.activityHead strong{font-size:12px}.activityHead span{font-size:10px;color:#69748a}.log{max-height:170px;overflow:auto}.log div{padding:10px 2px;border-bottom:1px solid var(--line);font-size:11px;color:#b5bdcc}.log div:last-child{border-bottom:0}.log small{color:#667085}.footer{display:flex;justify-content:center;margin-top:15px}.unpair{border:0;background:none;color:#69748a;font-size:11px;padding:10px}
+.modal{position:fixed;inset:0;background:#03050ad9;backdrop-filter:blur(12px);display:none;align-items:flex-end;justify-content:center;padding:16px}.modal.on{display:flex}.sheet{width:100%;max-width:480px;border:1px solid var(--line);background:#111520;border-radius:26px;padding:23px;box-shadow:0 -20px 70px #0008}.sheet .handle{width:38px;height:4px;background:#353c4c;border-radius:99px;margin:0 auto 22px}.sheet .dangerIcon{width:48px;height:48px;border-radius:16px;background:#ff53611a;color:var(--red);display:grid;place-items:center;font-size:20px;margin-bottom:13px}.sheet h3{margin:0;font-size:18px}.sheet p{margin:7px 0 18px;color:var(--muted);font-size:12px}.confirm{display:grid;grid-template-columns:1fr 1fr;gap:9px}.confirm button{height:48px;border-radius:14px;border:1px solid var(--line);background:#1a1f2b;color:#fff;font-weight:700}.confirm .yes{background:var(--red);border:0}.msg{position:fixed;left:50%;bottom:18px;transform:translateX(-50%) translateY(20px);opacity:0;pointer-events:none;background:#eef2fa;color:#0b0e15;padding:10px 14px;border-radius:12px;font-size:11px;font-weight:700;box-shadow:0 12px 35px #0008;transition:.2s;z-index:40}.msg.show{opacity:1;transform:translateX(-50%) translateY(0)}.hide{display:none!important}
+@media(min-width:600px){body{padding-top:32px}.app{max-width:520px}}
+#rs{position:fixed;inset:0;z-index:30;background:#000;display:flex;flex-direction:column;overscroll-behavior:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.rsbar{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 10px;background:#0b0f19;font-size:12px;color:#b8c0d0}.rsbar span{display:flex;gap:8px}.rsbot{justify-content:center;flex-wrap:wrap}
+.rsbar button,.rskeys button{border:1px solid var(--line);background:#171c28;color:#e9edf5;border-radius:11px;padding:9px 12px;font-size:12px;font-weight:700}
+.rsview{flex:1;min-height:0;touch-action:none;user-select:none;-webkit-user-select:none}.rsview canvas{width:100%;height:100%;object-fit:contain;display:block}
+.rskeys{display:grid;grid-template-columns:repeat(var(--key-cols,4),minmax(0,1fr));gap:6px;padding:8px;background:#0b0f19;max-height:32vh;overflow:auto}.rskeys button{min-height:var(--key-height,44px);padding:7px 3px;word-break:normal}
+/* A real, visible text field is needed for Android soft keyboards and IME composition. */
+.quick.wide{grid-column:span 2}
+.typePanel{flex-shrink:0;padding:10px 12px 12px;background:#111a2a;border-bottom:1px solid #34435b;color:#eef3ff}
+.typePanel .typeTop{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:10px}
+.typePanel .typeTop strong{font-size:13px}
+.typePanel button{color:#fff;background:#223456;border:1px solid #435875;border-radius:10px;min-height:40px;padding:8px 12px;font-weight:700}
+.typePanel textarea{display:block;resize:vertical;width:100%;min-height:54px;max-height:130px;max-width:100%;font:16px/1.4 system-ui,sans-serif;color:#f7f9fc;background:#07101c;border:1px solid #546686;border-radius:11px;padding:10px;outline:none}
+.typePanel textarea:focus{border-color:#8caeff;box-shadow:0 0 0 2px #8caeff30}
+.typeActions{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:8px}
+.typeActions .sendText{background:#3b70ed;border-color:#3b70ed;flex:1}
+.typeHelp{display:block;font-size:11px;color:#abbad1;margin:6px 0 0;line-height:1.4}
+#typeStatus{font-size:11px;color:#b7e8d1;min-height:0;margin:6px 0 0}
+#typeStatus[data-state="error"]{color:#ffadba}
+@media(max-height:530px){.typePanel textarea{min-height:42px;max-height:66px}.typeHelp{display:none}}
+
+/* Private pairing gate. Visible before any controls are usable. */
+#pairGate{position:fixed;inset:0;z-index:100;background:linear-gradient(160deg,#0d1529 0%,#07090f 68%);display:grid;place-items:center;padding:20px}
+#pairGate.hide{display:none}
+.pairCard{width:min(100%,410px);border:1px solid rgba(126,150,205,.22);background:linear-gradient(145deg,#192036,#0c111c);border-radius:25px;padding:30px 24px;box-shadow:0 20px 70px #0009}
+.pairMark{width:52px;height:52px;border-radius:16px;background:#4f7cff22;color:#9cb5ff;display:grid;place-items:center;font-size:27px;margin-bottom:20px}
+.pairCard h1{font-size:27px;margin:5px 0 9px}.pairCard p{font-size:14px;color:#a1abc2;line-height:1.55;margin-bottom:24px}
+.pairCard label{display:block;margin-bottom:9px;font-size:12px;color:#b5c4e1;font-weight:700}
+.pairCard input{width:100%;border:1px solid #536288;border-radius:13px;outline:none;background:#0b0f1b;color:white;padding:15px 17px;font-size:22px;letter-spacing:5px;text-align:center;margin-bottom:12px}
+.pairCard input:focus{border-color:#7196ff;box-shadow:0 0 0 3px #7196ff22}
+.pairCard button{width:100%;border:0;border-radius:13px;background:#507bff;color:white;padding:14px;font-weight:800;cursor:pointer}
+.pairCard button:disabled{opacity:.55;cursor:wait}
+#pairError{min-height:20px;color:#ff8b9a;font-size:12px;line-height:1.5;margin-top:12px}
+.pairHelp{font-size:11px;color:#8d96a9;line-height:1.5;border-top:1px solid rgba(255,255,255,.09);padding-top:14px;margin-top:11px}
+.pairHelp code{background:#222b40;border-radius:5px;padding:2px 4px}
+#unpairBtn{border:1px solid #ffffff25;color:#a4b1c8;background:#121a2a;border-radius:9px;padding:7px 9px;font-size:11px;cursor:pointer;margin-left:10px}
+
+/* Editable on-phone shortcut tray and pointer preferences. */
+#rsSettings{position:absolute;inset:0;z-index:45;background:#01040bd9;display:flex;align-items:flex-end;justify-content:center;padding:12px;overscroll-behavior:contain}
+#rsSettings.hide{display:none}
+.controlSheet{width:min(100%,520px);max-height:88%;overflow:auto;border:1px solid #343e55;background:#101724;color:#eef2fa;border-radius:23px;padding:18px 16px 24px;box-shadow:0 22px 65px #000a}
+.controlHead{display:flex;justify-content:space-between;align-items:start;gap:12px}.controlHead h2{margin:0;font-size:20px}.controlHead p{margin:6px 0 0;color:#99a8c1;font-size:12px}
+.controlSheet button,.controlSheet select{color:#f2f5fc;background:#1b2639;border:1px solid #3c4a61;border-radius:10px;padding:10px;font:inherit}
+.controlSheet button:disabled{opacity:.3}.controlSheet button:focus-visible,.controlSheet select:focus-visible{outline:2px solid #7ea1ff}
+.controlSheet label{display:block;font-size:12px;color:#b5c0d1;margin:14px 0 7px;font-weight:700}
+.controlSheet input[type=range]{width:100%;accent-color:#7da1ff;height:28px}
+.controlSheet select{width:100%}.shortcutItem{display:flex;gap:6px;align-items:center;margin:7px 0}.shortcutItem select{flex:1;min-width:0}.shortcutItem button{flex-shrink:0;min-width:36px;padding:10px 8px}
+.controlActions{display:flex;gap:8px;margin-top:14px}.controlActions button{flex:1}
+.controlGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.controlGrid label{margin-bottom:0}.controlGrid select{margin-top:7px}
+#rsSettings .closeSettings{min-width:46px;background:#283d64}
+</style>
+</head>
+<body>
+<div id="pairGate" aria-label="Pair phone with Windows PC">
+  <form id="pairForm" class="pairCard">
+    <div class="pairMark">▣</div>
+    <div class="eyebrow">Private local network</div>
+    <h1>Connect to your PC</h1>
+    <p>Read the 8-digit pairing PIN from the PC Remote terminal on your Windows computer. Both devices must be on the same trusted Wi-Fi network.</p>
+    <label for="pin">Pairing PIN</label>
+    <input id="pin" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{8}" minlength="8" maxlength="8" placeholder="••••••••" required aria-describedby="pairError">
+    <button id="pairSubmit" type="submit">Pair this phone</button>
+    <div id="pairError" role="status" aria-live="polite"></div>
+    <div class="pairHelp">The PC owner must start <code>start.bat</code> and keep its terminal window open. Close that window to stop remote access.</div>
+  </form>
+</div>
+<div class="app">
+  <div class="topbar">
+    <div class="brand"><div class="brandmark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><div class="brandtext"><strong>PC Remote</strong><span>Local network control</span></div></div>
+    <div style="display:flex;align-items:center"><div class="connection"><i class="dot"></i><span id="conn">Connecting</span></div><button id="unpairBtn" onclick="unpair()">Unpair</button></div>
+  </div>
+
+  <main id="main">
+    <section class="card hero">
+      <div class="eyebrow">Connected device</div><h1 id="name">Your PC</h1><p>Control power, media and system status from your phone.</p>
+      <div class="online"><i class="dot"></i><span id="onlineText">Online and ready</span></div>
+      <div class="heroactions"><button class="quick" onclick="send('lock')">Lock screen<span>Secure the PC instantly</span></button><button class="quick" onclick="send('sleep')">Sleep<span>Put the PC to sleep</span></button><button class="quick wide hide" id="screenBtn" onclick="rsOpen()">Remote screen<span>View and control your PC from this phone</span></button></div>
+    </section>
+
+    <div class="section"><h2>System status</h2><small>Live</small></div>
+    <section class="stats">
+      <div class="stat"><div class="statlabel">CPU</div><div class="statvalue" id="t-cpu">--</div><div class="bar"><i id="b-cpu"></i></div></div>
+      <div class="stat"><div class="statlabel">Memory</div><div class="statvalue" id="t-mem">--</div><div class="bar"><i id="b-mem"></i></div></div>
+      <div class="stat uptime"><div class="statlabel">Uptime</div><div class="statvalue" id="t-up">--</div></div>
+    </section>
+
+    <div class="section"><h2>Power controls</h2><small>Windows</small></div>
+    <section class="power">
+      <button class="action shutdown" data-a="shutdown" data-q="Shut down the PC?"><div class="ico">⏻</div><strong>Shut down</strong><span>Power off completely</span></button>
+      <button class="action restart" data-a="restart" data-q="Restart the PC?"><div class="ico">↻</div><strong>Restart</strong><span>Reboot Windows</span></button>
+      <button class="action sleep" data-a="sleep"><div class="ico">☾</div><strong>Sleep</strong><span>Low power mode</span></button>
+      <button class="action lock" data-a="lock"><div class="ico">⌑</div><strong>Lock</strong><span>Lock the screen</span></button>
+      <button class="action neutral" data-a="logoff" data-q="Sign out of Windows?"><div class="ico">⇥</div><strong>Sign out</strong><span>End current session</span></button>
+      <button class="action neutral cancel" data-a="cancel"><strong>Cancel pending power action</strong></button>
+    </section>
+
+    <div class="section"><h2>Media remote</h2><small>Keyboard controls</small></div>
+    <section class="card mediaWrap"><div class="mediaGrid">
+      <button class="media" data-a="prev">⏮<small>Previous</small></button><button class="media play" data-a="playpause">▶<small>Play / pause</small></button><button class="media" data-a="next">⏭<small>Next</small></button>
+      <button class="media" data-a="voldown">🔉<small>Volume down</small></button><button class="media" data-a="mute">🔇<small>Mute</small></button><button class="media" data-a="volup">🔊<small>Volume up</small></button>
+    </div></section>
+
+    <div class="section"><h2>Activity</h2><small>Recent commands</small></div>
+    <section class="card activity"><div class="activityHead"><strong>Command history</strong><span id="activityCount">0 events</span></div><div class="log" id="log">Nothing yet</div></section>
+  </main>
+</div>
+
+<div id="rs" class="hide">
+  <div class="rsbar"><b id="rsst">Connecting…</b><span><button id="rsq" onclick="rsQ()">Med</button><button onclick="rsClose()">✕</button></span></div>
+  <section id="typePanel" class="typePanel hide" aria-label="Type text on Windows">
+    <div class="typeTop"><strong>Phone keyboard → Windows PC</strong><button type="button" onclick="rsTypeClose()" aria-label="Close typing panel">✕ Close</button></div>
+    <textarea id="typeText" rows="2" maxlength="4000" autocapitalize="sentences" autocomplete="off" spellcheck="false" placeholder="Type here with your phone keyboard…" aria-describedby="typeHint"></textarea>
+    <p class="typeHelp" id="typeHint">First tap a text field on the PC screen (e.g. Notepad), then type here and tap Send. Text is not saved on your phone.</p>
+    <div class="typeActions"><button type="button" class="sendText" id="sendText" onclick="rsSendText()">Send text</button><button type="button" onclick="rsTypeKey(8)">⌫ Backspace</button><button type="button" onclick="rsTypeKey(13)">↵ Enter</button></div>
+    <p id="typeStatus" role="status" aria-live="polite"></p>
+  </section>
+  <div class="rsview" id="rsv"><canvas id="rsc"></canvas></div>
+  <div class="rskeys hide" id="rsk" onmousedown="event.preventDefault()"></div>
+  <div class="rsbar rsbot" onmousedown="event.preventDefault()"><button id="rsm" onclick="rsMode()">Trackpad</button><button onclick="qc('click l')">Left</button><button onclick="qc('click r')">Right</button><button onclick="rsKb()">Keyboard</button><button id="keyToggle" onclick="rsToggleKeys()">Hide keys</button><button onclick="rsPrefsOpen()" aria-label="Customize controls">⚙ Controls</button></div>
+  <div id="rsSettings" class="hide" role="dialog" aria-label="Customize remote controls" aria-modal="true">
+    <div class="controlSheet">
+      <div class="controlHead"><div><h2>Customize controls</h2><p>Choose buttons, change their order and adjust touch movement. Saved on this phone.</p></div><button class="closeSettings" onclick="rsPrefsClose()" aria-label="Close settings">✕</button></div>
+      <label for="sensitivity">Trackpad sensitivity: <output id="sensValue">1.0×</output></label>
+      <input type="range" id="sensitivity" min="0.5" max="2.5" step="0.1" value="1" oninput="rsSetSens(this.value)">
+      <div class="controlGrid">
+        <label for="keyColumns">Buttons per row<select id="keyColumns" onchange="rsSetCols(this.value)"><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
+        <label for="keySize">Button height<select id="keySize" onchange="rsSetSize(this.value)"><option value="44">Standard</option><option value="56">Large</option></select></label>
+      </div>
+      <label>Shortcut buttons (top to bottom)</label>
+      <div id="shortcutEditor"></div>
+      <div class="controlActions"><button id="addShortcut" onclick="rsAddShortcut()">+ Add button</button><button onclick="rsResetPrefs()">Reset defaults</button></div>
+    </div>
+  </div>
+
+</div>
+<div class="msg" id="msg"></div>
+<div class="modal" id="modal"><div class="sheet"><div class="handle"></div><div class="dangerIcon">!</div><h3 id="q">Are you sure?</h3><p>This action will be sent to the connected PC.</p><div class="confirm"><button onclick="closeM()">Cancel</button><button class="yes" id="yes">Continue</button></div></div></div>
+<script>
+const $=id=>document.getElementById(id);let msgTimer;
+function msg(t){const e=$('msg');e.textContent=t;e.classList.add('show');clearTimeout(msgTimer);msgTimer=setTimeout(()=>e.classList.remove('show'),2200)}
+async function api(path,opt={}){const r=await fetch(path,{...opt,headers:{'Content-Type':'application/json','X-PCR':'1'}});const d=await r.json().catch(()=>({}));return{status:r.status,...d}}
+let paired=false;
+function showPair(error=''){paired=false;$('pairGate').classList.remove('hide');$('pairError').textContent=error;$('conn').textContent='Not paired';}
+function showConnected(d){paired=true;$('pairGate').classList.add('hide');$('conn').textContent='Connected';if(d.name)$('name').textContent=d.name;$('screenBtn').classList.toggle('hide',!d.screen);poll();}
+async function init(){try{const d=await api('/api/ping');if(d.paired)showConnected(d);else showPair();}catch{showPair('PC is not reachable. Check that start.bat is running and you opened the correct address.');}}
+$('pairForm').addEventListener('submit',async e=>{e.preventDefault();const b=$('pairSubmit');b.disabled=true;$('pairError').textContent='Pairing with the local PC…';try{const d=await api('/api/pair',{method:'POST',body:JSON.stringify({pin:$('pin').value})});if(d.ok){$('pin').value='';init();}else $('pairError').textContent=d.error||'Pairing failed';}catch{$('pairError').textContent='Cannot reach this PC';}finally{b.disabled=false;}});
+async function unpair(){rsClose();try{await api('/api/unpair',{method:'POST',body:'{}'});}catch{}showPair();}
+async function send(action){msg('Sending command…');try{const d=await api('/api/cmd',{method:'POST',body:JSON.stringify({action})});if(d.status===401){showPair('Your session has expired. Pair again.');return;}msg(d.msg||d.error||'Command sent');poll()}catch{msg('PC not reachable')}}
+const fmtUp=s=>{const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m}m`};
+async function poll(){if(document.hidden||!paired)return;try{const d=await api('/api/status');if(d.status===401){showPair('Your session has expired. Pair again.');return;}if(d.status!==200)return;$('conn').textContent='Connected';$('onlineText').textContent='Online and ready';if(d.name)$('name').textContent=d.name;$('t-cpu').textContent=d.cpu+'%';$('b-cpu').style.width=Math.min(100,d.cpu)+'%';$('t-mem').textContent=d.mem+'%';$('b-mem').style.width=Math.min(100,d.mem)+'%';$('t-up').textContent=fmtUp(d.uptime);const logs=d.log||[];$('activityCount').textContent=logs.length+' event'+(logs.length===1?'':'s');$('log').replaceChildren(...(logs.length?logs.map(l=>{const row=document.createElement('div');const b=document.createElement('b');b.textContent=new Date(l.t).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});const info=document.createElement('small');info.textContent=` (${l.ip})`;row.append(b,document.createTextNode(' · '+l.text+' '),info);return row;}):[document.createTextNode('Nothing yet')]))}catch{$('conn').textContent='Offline';$('onlineText').textContent='PC not reachable'}}
+document.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{const a=b.dataset.a,q=b.dataset.q;if(q){$('q').textContent=q;$('modal').classList.add('on');$('yes').onclick=()=>{closeM();send(a)}}else send(a)});
+function closeM(){$('modal').classList.remove('on')}setInterval(poll,5000);document.addEventListener('visibilitychange',poll);init();
+// ---- Remote screen: trackpad / touch control. One finger = move, tap = click, hold = drag,
+// two fingers = scroll, two-finger tap = right click.
+const ls=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch{}};
+const rs={on:0,ab:null,m:null,mode:ls('pcr_mode')||'pad',qi:+(ls('pcr_q')||1),pend:null,dec:0};let qq=[],qb=0,g=null;
+const QN=['low','med','high'],KEYS=[['Esc','key 27'],['Tab','key 9'],['Win','key 91'],['Alt+Tab','combo 18,9'],['←','key 37'],['↑','key 38'],['↓','key 40'],['→','key 39'],['Enter','key 13'],['⌫','key 8'],['Del','key 46'],['Home','key 36'],['End','key 35'],['PgUp','key 33'],['PgDn','key 34'],['Ctrl+C','combo 17,67'],['Ctrl+V','combo 17,86'],['Ctrl+A','combo 17,65'],['Ctrl+Z','combo 17,90'],['Win+D','combo 91,68'],['Task Mgr','combo 17,16,27'],['F5','key 116']];
+const DEFAULT_SHORTCUTS=['key 27','combo 18,9','key 13','key 8','combo 17,67','combo 17,86','combo 91,68','key 116'];
+const validShortcuts=()=>KEYS.map(k=>k[1]);
+function loadShortcuts(){try{const a=JSON.parse(ls('pcr_shortcuts_v1')||'null');if(Array.isArray(a)&&a.length<=16&&a.every(v=>validShortcuts().includes(v)))return a;}catch{}return DEFAULT_SHORTCUTS.slice()}
+let shortcuts=loadShortcuts();
+let showKeys=ls('pcr_keys_visible')!=='false';
+let sens=Math.min(2.5,Math.max(0.5,Number(ls('pcr_sensitivity')||1)||1));
+let cols=['3','4','5'].includes(ls('pcr_keycols'))?ls('pcr_keycols'):'4';
+let keyHeight=['44','56'].includes(ls('pcr_keyheight'))?ls('pcr_keyheight'):'44';
+function rsRenderShortcuts(){
+  const tray=$('rsk');tray.replaceChildren();
+  for(const command of shortcuts){const item=KEYS.find(k=>k[1]===command);if(!item)continue;
+    const button=document.createElement('button');button.type='button';button.textContent=item[0];button.title=item[0];button.addEventListener('click',()=>qc(command));tray.append(button);
+  }
+  tray.classList.toggle('hide',!showKeys);
+  $('keyToggle').textContent=showKeys?'Hide keys':'Show keys';
+  tray.style.setProperty('--key-cols',cols);tray.style.setProperty('--key-height',keyHeight+'px');
+}
+function rsSaveShortcuts(){ls('pcr_shortcuts_v1',JSON.stringify(shortcuts));rsRenderShortcuts();rsRenderEditor()}
+function rsRenderEditor(){const parent=$('shortcutEditor');parent.replaceChildren();
+  shortcuts.forEach((cmd,index)=>{const row=document.createElement('div');row.className='shortcutItem';
+    const choose=document.createElement('select');choose.setAttribute('aria-label','Shortcut '+(index+1));
+    KEYS.forEach(([label,value])=>{const opt=document.createElement('option');opt.value=value;opt.textContent=label;choose.append(opt)});
+    choose.value=cmd;choose.addEventListener('change',()=>{shortcuts[index]=choose.value;rsSaveShortcuts()});row.append(choose);
+    for(const [symbol,offset,label] of [['↑',-1,'Move up'],['↓',1,'Move down']]){
+      const b=document.createElement('button');b.textContent=symbol;b.title=label;b.disabled=index+offset<0||index+offset>=shortcuts.length;
+      b.addEventListener('click',()=>{const to=index+offset;[shortcuts[to],shortcuts[index]]=[shortcuts[index],shortcuts[to]];rsSaveShortcuts()});row.append(b);
+    }
+    const remove=document.createElement('button');remove.textContent='✕';remove.title='Remove button';remove.addEventListener('click',()=>{shortcuts.splice(index,1);rsSaveShortcuts()});row.append(remove);parent.append(row);
+  });
+  $('addShortcut').disabled=shortcuts.length>=16;
+}
+function rsToggleKeys(){showKeys=!showKeys;ls('pcr_keys_visible',String(showKeys));rsRenderShortcuts()}
+function rsPrefsOpen(){$('rsSettings').classList.remove('hide');$('sensitivity').value=sens;$('sensValue').textContent=sens.toFixed(1)+'×';$('keyColumns').value=cols;$('keySize').value=keyHeight;rsRenderEditor()}
+function rsPrefsClose(){$('rsSettings').classList.add('hide')}
+function rsSetSens(value){sens=Math.min(2.5,Math.max(0.5,Number(value)||1));ls('pcr_sensitivity',String(sens));$('sensValue').textContent=sens.toFixed(1)+'×'}
+function rsSetCols(value){if(!['3','4','5'].includes(value))return;cols=value;ls('pcr_keycols',cols);rsRenderShortcuts()}
+function rsSetSize(value){if(!['44','56'].includes(value))return;keyHeight=value;ls('pcr_keyheight',keyHeight);rsRenderShortcuts()}
+function rsAddShortcut(){if(shortcuts.length>=16)return;shortcuts.push('key 13');rsSaveShortcuts()}
+function rsResetPrefs(){shortcuts=DEFAULT_SHORTCUTS.slice();sens=1;cols='4';keyHeight='44';showKeys=true;ls('pcr_sensitivity','1');ls('pcr_keycols',cols);ls('pcr_keyheight',keyHeight);ls('pcr_keys_visible','true');rsSaveShortcuts();rsPrefsOpen()}
+rsRenderShortcuts();
+function qc(c){const l=qq[qq.length-1],[a,x,y]=c.split(' ');if(l&&l.startsWith(a+' ')&&(a==='mv'||a==='wheel'||a==='abs')){const[,lx,ly]=l.split(' ');qq[qq.length-1]=a==='abs'?c:a==='wheel'?'wheel '+(+lx + +x):'mv '+(+lx + +x)+' '+(+ly + +y)}else qq.push(c);flush()}
+async function flush(){if(qb||!qq.length)return;qb=1;const c=qq.splice(0,50);try{await api('/api/input',{method:'POST',body:JSON.stringify({cmds:c})})}catch{}qb=0;flush()}
+function rsFrame(b){rs.pend=b;if(rs.dec)return;rs.dec=1;(async()=>{while(rs.pend){const p=rs.pend;rs.pend=null;try{const im=await createImageBitmap(new Blob([p],{type:'image/jpeg'})),c=$('rsc');if(c.width!==im.width||c.height!==im.height){c.width=im.width;c.height=im.height}c.getContext('2d').drawImage(im,0,0);im.close();$('rsst').textContent=rs.m?rs.m.w+'×'+rs.m.h:'Live'}catch{}}rs.dec=0})()}
+async function rsRun(){const ab=rs.ab=new AbortController();try{const r=await fetch('/api/screen?p='+QN[rs.qi],{headers:{'X-PCR':'1'},signal:ab.signal});if(!r.ok){const d=await r.json().catch(()=>({}));msg(d.error||'Screen unavailable');$('rsst').textContent=d.error||'Screen unavailable';return rsClose()}const rd=r.body.getReader();let b=new Uint8Array(0);for(;;){const{done,value}=await rd.read();if(done)break;const n=new Uint8Array(b.length+value.length);n.set(b);n.set(value,b.length);b=n;while(b.length>=5){const L=((b[1]<<24)|(b[2]<<16)|(b[3]<<8)|b[4])>>>0;if(b.length<5+L)break;const t=b[0],p=b.slice(5,5+L);b=b.subarray(5+L);if(t)rs.m=JSON.parse(new TextDecoder().decode(p));else rsFrame(p)}}}catch(e){if(e.name==='AbortError')return}if(rs.on&&rs.ab===ab){$('rsst').textContent='Reconnecting…';setTimeout(()=>{if(rs.on&&rs.ab===ab)rsRun()},1500)}}
+function rsOpen(){rs.on=1;$('rs').classList.remove('hide');document.body.style.overflow='hidden';$('rsq').textContent=['Low','Med','High'][rs.qi];$('rsm').textContent=rs.mode==='pad'?'Trackpad':'Touch';$('rsst').textContent='Connecting…';rsRun()}
+function rsClose(){rs.on=0;if(rs.ab)rs.ab.abort();rsPrefsClose();rsTypeClose();$('rs').classList.add('hide');document.body.style.overflow='';qq=[]}
+function rsMode(){rs.mode=rs.mode==='pad'?'touch':'pad';ls('pcr_mode',rs.mode);$('rsm').textContent=rs.mode==='pad'?'Trackpad':'Touch'}
+function rsQ(){rs.qi=(rs.qi+1)%3;ls('pcr_q',rs.qi);$('rsq').textContent=['Low','Med','High'][rs.qi];rs.ab.abort();rsRun()}
+document.addEventListener('visibilitychange',()=>{if(!rs.on)return;if(document.hidden)rs.ab.abort();else rsRun()});
+function box(){const c=$('rsc'),e=c.getBoundingClientRect(),a=c.width/c.height||1;let w=e.width,h=e.height,x=e.left,y=e.top;if(w/h>a){const nw=h*a;x+=(w-nw)/2;w=nw}else{const nh=w/a;y+=(h-nh)/2;h=nh}return{x,y,w,h}}
+function pos(t){const b=box(),m=rs.m;if(!m)return;const f=(v,o,s,M)=>Math.round(Math.min(Math.max((v-o)/s,0),1)*(M-1));qc('abs '+f(t.clientX,b.x,b.w,m.w)+' '+f(t.clientY,b.y,b.h,m.h))}
+const V=$('rsv');
+V.addEventListener('touchstart',e=>{e.preventDefault();const t=e.touches;if(t.length>=2){if(g){clearTimeout(g.lp);if(g.dr)qc('up l')}g={n:2,y:(t[0].clientY+t[1].clientY)/2,t:Date.now(),mv:0,ac:0};return}
+g={n:1,x:t[0].clientX,y:t[0].clientY,lx:t[0].clientX,ly:t[0].clientY,t:Date.now(),mv:0,dr:0,rx:0,ry:0};if(rs.mode==='touch')pos(t[0]);
+g.lp=setTimeout(()=>{if(g&&g.n===1&&!g.mv){navigator.vibrate&&navigator.vibrate(15);if(rs.mode==='pad'){g.dr=1;qc('down l')}else{g.rc=1;qc('click r')}}},450)},{passive:false});
+V.addEventListener('touchmove',e=>{e.preventDefault();if(!g)return;const t=e.touches;
+if(g.n===2){if(t.length<2)return;const y=(t[0].clientY+t[1].clientY)/2;g.ac+=(y-g.y)*4;g.y=y;if(Math.abs(g.ac)>=1){g.mv=1;const d=Math.trunc(g.ac);g.ac-=d;qc('wheel '+d)}return}
+const p=t[0];if(!g.mv&&Math.hypot(p.clientX-g.x,p.clientY-g.y)>8){g.mv=1;clearTimeout(g.lp);if(rs.mode==='touch'&&!g.rc){g.dr=1;qc('down l')}}
+if(!g.mv)return;const dx=p.clientX-g.lx,dy=p.clientY-g.ly;g.lx=p.clientX;g.ly=p.clientY;
+if(rs.mode==='touch'){pos(p);return}
+const b=box(),m=rs.m;if(!m)return;const k=m.w/b.w*(1+Math.min(Math.hypot(dx,dy),30)/30)*sens;g.rx+=dx*k;g.ry+=dy*k;const ix=Math.trunc(g.rx),iy=Math.trunc(g.ry);g.rx-=ix;g.ry-=iy;if(ix||iy)qc('mv '+ix+' '+iy)},{passive:false});
+V.addEventListener('touchend',e=>{e.preventDefault();if(!g||e.touches.length)return;clearTimeout(g.lp);const tap=!g.mv&&Date.now()-g.t<300;if(g.n===2){if(tap)qc('click r')}else if(g.dr)qc('up l');else if(tap)qc('click l');g=null},{passive:false});
+V.addEventListener('touchcancel',()=>{if(g){clearTimeout(g.lp);if(g.dr)qc('up l')}g=null});
+// Mobile keyboard: focus a visible textarea, compose text locally, and send only
+// when the user taps Send. This avoids IME autocorrect / composition duplicates.
+function rsKb(){
+  $('typePanel').classList.remove('hide');
+  $('typeStatus').textContent='';
+  $('typeText').focus(); // direct tap -> native phone keyboard
+}
+function rsTypeClose(){
+  $('typeText').blur();
+  $('typeText').value='';
+  $('typeStatus').textContent='';
+  $('typePanel').classList.add('hide');
+}
+function encodeTextCommands(value){
+  const chunks=[];let acc='';let byteLength=0;
+  // Bound each UTF-8 payload to 300 bytes, never breaking a multibyte character.
+  for(const char of value){
+    const size=new TextEncoder().encode(char).length;
+    if(byteLength+size>300 && acc){chunks.push(acc);acc='';byteLength=0;}
+    acc+=char;byteLength+=size;
+  }
+  if(acc)chunks.push(acc);
+  return chunks.map(chunk=>{
+    const bytes=new TextEncoder().encode(chunk);
+    return 'text '+btoa(String.fromCharCode(...bytes));
+  });
+}
+let typeBusy=false;
+async function submitTyping(commands){
+  if(typeBusy || !rs.on)return false;
+  typeBusy=true;
+  const sendButton=$('sendText');sendButton.disabled=true;
+  const status=$('typeStatus');status.dataset.state='pending';status.textContent='Sending…';
+  try{
+    for(let i=0;i<commands.length;i+=25){
+      const d=await api('/api/input',{method:'POST',body:JSON.stringify({cmds:commands.slice(i,i+25),wait:true})});
+      if(!d.ok || d.status!==200){
+        if(d.status===401)showPair('Your session has expired. Pair again.');
+        throw new Error(d.error||('PC rejected input (HTTP '+d.status+')'));
+      }
+    }
+    status.dataset.state='success';status.textContent='Windows accepted the keyboard input. Check the selected PC text field.';
+    return true;
+  }catch(e){
+    status.dataset.state='error';status.textContent='Could not send: '+(e.message||'Check the PC connection');
+    return false;
+  }finally{typeBusy=false;sendButton.disabled=false;}
+}
+async function rsSendText(){
+  const input=$('typeText');const value=input.value;
+  if(!value){$('typeStatus').textContent='Type something first.';input.focus();return;}
+  // Do not remove the text if the network request fails: user can retry.
+  if(await submitTyping(encodeTextCommands(value))) input.value='';
+}
+async function rsTypeKey(key){await submitTyping(['key '+key]);}
+</script>
+</body></html>
