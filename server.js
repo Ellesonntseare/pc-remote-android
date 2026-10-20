@@ -179,7 +179,7 @@ function createApp(options={}) {
     // Never use X-Forwarded-For / CF-Connecting-IP as proof of authorization.
     const viaTunnel = !!tunnelHostname && loopbackIP(ip) && sameHost(req.headers.host,new Set([tunnelHostname]));
     const allowed = tunnelHostname ? viaTunnel : privateIP(ip) && sameHost(req.headers.host,hostnames);
-    if(!allowed)return respond(res,403,{error:tunnelHostname?'Tunnel host only':'Local network only'});
+    if(!allowed)return respond(res,403,{error:tunnelHostname?'Tunnel host only':'Local network only. For remote.teamtrader.co.za, run start-cloudflare.bat on the Windows host and restart Cloudflare Tunnel.'});
     if(req.headers.origin){try{const origin=new URL(req.headers.origin);if(origin.host!==req.headers.host)return respond(res,403,{error:'Cross-origin request rejected'});}catch{return respond(res,403,{error:'Invalid origin'});}}
     let pathname;
     try{pathname=new URL(req.url,'http://localhost').pathname;}catch{return respond(res,400,{error:'Bad URL'});}
@@ -278,7 +278,8 @@ function createApp(options={}) {
 if(require.main===module){
   if(process.argv.includes('--port')){console.log(Number(process.env.PORT||7666));process.exit(0);}
   let config={};
-  try {config=JSON.parse(fs.readFileSync(path.join(ROOT,'config.json'),'utf8'));} catch {}
+  try {config=JSON.parse(fs.readFileSync(path.join(ROOT,'config.json'),'utf8'));}
+  catch(e) { if(e.code!=='ENOENT'){console.error('Cannot load config.json:',e.message);process.exit(1);} }
   const app=createApp({screen:config.screen!==false,delaySeconds:config.delaySeconds,requirePin:config.requirePin===true,tunnelHostname:config.tunnelHostname});
   app.server.listen(app.port,config.tunnelHostname?'127.0.0.1':'0.0.0.0',()=>{
     const actual=app.server.address().port;

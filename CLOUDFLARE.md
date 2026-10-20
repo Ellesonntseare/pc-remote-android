@@ -11,8 +11,8 @@ The app does not verify Cloudflare Access tokens itself. Cloudflare Access must 
 ## Configure the Windows host
 
 1. Close the old PC Remote terminal.
-2. Copy `config.cloudflare.example.json` to `config.json` in this folder. If you already have `config.json`, merge the `tunnelHostname` setting into it and keep your other preferences.
-3. Run `start.bat`. It rebuilds the Windows agent and starts the server on `127.0.0.1:7666` with `remote.teamtrader.co.za` as the only accepted hostname. The app uses no pairing PIN with this configuration.
+2. Run `start-cloudflare.bat` from the updated source folder. It writes the hostname to local `config.json`, preserves other existing settings, disables the app PIN, rebuilds the Windows agent, and starts the server. If `config.json` is invalid, it stops with an error instead of overwriting the file.
+3. Check the terminal prints `Phone URL: https://remote.teamtrader.co.za`. If it prints a LAN IP, close that terminal and start the updated `start-cloudflare.bat` from the folder that Cloudflare Tunnel serves. The server should listen on `127.0.0.1:7666`.
 
 The direct LAN IP URL will no longer work in tunnel mode. To return to LAN use, remove `tunnelHostname` and restart the host.
 
@@ -42,3 +42,5 @@ Keep the PC Remote terminal running. The cloudflared connector must also be runn
 4. Confirm closing the PC Remote terminal stops remote control.
 
 Remote screen streaming and actual Windows paste over Cloudflare have not been validated by the cloud tests. Cloudflare session expiry and network interruption may require signing in or reopening Remote screen. Sending text replaces the PC clipboard; clipboard access on the phone still depends on browser permissions.
+
+If the browser reports `Local network only`, the tunnel is reaching a host still running in LAN mode. Close that host terminal, download the latest source ZIP, run `start-cloudflare.bat`, and verify the terminal prints the HTTPS Phone URL above. Check that Cloudflare Tunnel points to port 7666 on that same PC.

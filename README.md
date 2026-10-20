@@ -92,4 +92,4 @@ Draft text survives closing the keyboard panel and is cleared only after Windows
 Connections are automatic by default. Anyone able to reach the host on your trusted LAN can control it while the host is running. Keep the host on a trusted private network and close its terminal to stop access. To require a PIN again, add `"requirePin": true` to your local `config.json` and restart the host.
 
 
-For the custom domain **remote.teamtrader.co.za**, follow [CLOUDFLARE.md](CLOUDFLARE.md) and use `config.cloudflare.example.json`. Protect the hostname with Cloudflare Access before publishing its tunnel route.
+For the custom domain **remote.teamtrader.co.za**, follow [CLOUDFLARE.md](CLOUDFLARE.md) and run `start-cloudflare.bat`. Protect the hostname with Cloudflare Access before publishing its tunnel route.
