@@ -38,9 +38,11 @@ Keep the PC Remote terminal running. The cloudflared connector must also be runn
 
 1. In a private browser window, open `https://remote.teamtrader.co.za/api/ping`. You must see Cloudflare sign-in before receiving app JSON. An unauthorized email must be denied. If JSON appears without a valid Access session, stop the tunnel and fix the Access application/policy.
 2. Sign in with the allowed email, open `https://remote.teamtrader.co.za`, and confirm the app connects automatically without its own PIN.
-3. Open Remote screen, select a Notepad text field on the PC, open Keyboard, type `hello`, and tap Paste into PC. Confirm `hello` appears in order. Repeat with copied text, emoji, and multiple lines.
+3. Open Remote screen, select a Notepad text field on the PC, open Keyboard, check Live typing is on, and type `hello`. Confirm `hello` appears in order without pressing Send, then test Backspace and Enter. Repeat with copied text, emoji, and multiple lines.
 4. Confirm closing the PC Remote terminal stops remote control.
 
-Remote screen streaming and actual Windows paste over Cloudflare have not been validated by the cloud tests. Cloudflare session expiry and network interruption may require signing in or reopening Remote screen. Sending text replaces the PC clipboard; clipboard access on the phone still depends on browser permissions.
+Remote screen streaming and actual Windows paste over Cloudflare have not been validated by the cloud tests. Cloudflare session expiry and network interruption may require signing in or reopening Remote screen. Live typing preserves the PC clipboard; manual Paste into PC replaces it. Clipboard access on the phone still depends on browser permissions.
 
 If the browser reports `Local network only`, the tunnel is reaching a host still running in LAN mode. Close that host terminal, download the latest source ZIP, run `start-cloudflare.bat`, and verify the terminal prints the HTTPS Phone URL above. Check that Cloudflare Tunnel points to port 7666 on that same PC.
+
+Once the HTTPS site works, use **Install to phone** to install its web app. Desktop browsers can use HD quality, direct mouse/keyboard input, Full screen and zoom. Reconnect preserves drafts and requires New field before resuming typing after uncertain delivery.

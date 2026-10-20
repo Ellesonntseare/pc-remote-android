@@ -7,11 +7,25 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, execFile } = require('node:child_process');
 const ROOT = __dirname;
-const PRESETS = { low: [35, 0.40, 6], med: [50, 0.60, 10], high: [70, 0.85, 12] };
+const PRESETS = { low: [35, 0.40, 6], med: [50, 0.60, 10], high: [70, 0.85, 12], hd: [85, 1.0, 15] };
 const commands = new Set(['shutdown','restart','logoff','sleep','lock','volup','voldown','mute','playpause','next','prev','cancel']);
 const COOKIE_NAME = 'pc_remote_session';
 const SESSION_TIME = 2 * 60 * 60 * 1000;
 const MAX_PACKET = 8 * 1024 * 1024;
+// Explicit public asset map: no arbitrary filesystem paths or paired data.
+const PWA_ASSETS = new Map([
+  ['/pwa.js', ['pwa.js', 'text/javascript; charset=utf-8']],
+  ['/pwa.css', ['pwa.css', 'text/css; charset=utf-8']],
+  ['/screen-tools.js', ['screen-tools.js', 'text/javascript; charset=utf-8']],
+  ['/screen-tools.css', ['screen-tools.css', 'text/css; charset=utf-8']],
+  ['/desktop-controls.js', ['desktop-controls.js', 'text/javascript; charset=utf-8']],
+  ['/desktop-controls.css', ['desktop-controls.css', 'text/css; charset=utf-8']],
+  ['/sw.js', ['sw.js', 'text/javascript; charset=utf-8']],
+  ['/icons/icon-192.png', ['icon-192.png', 'image/png']],
+  ['/icons/icon-512.png', ['icon-512.png', 'image/png']],
+  ['/icons/icon-maskable-512.png', ['icon-maskable-512.png', 'image/png']],
+  ['/icons/apple-touch-icon.png', ['apple-touch-icon.png', 'image/png']],
+]);
 function addresses() {
   const a = [];
   for (const nics of Object.values(os.networkInterfaces())) for (const n of nics || [])
@@ -59,12 +73,29 @@ function validInput(c) {
   if (verb === 'dbl') return v === '';
   if (['key','keydown','keyup'].includes(verb)) return /^\d{1,3}$/.test(v) && Number(v)<=255;
   if (verb === 'combo') return /^\d{1,3}(,\d{1,3}){1,3}$/.test(v) && v.split(',').every(x => Number(x)<=255);
-  if (verb === 'text' || verb === 'paste') {
-    const limit = verb === 'paste' ? 65536 : 600;
+  if (verb === 'text' || verb === 'paste' || verb === 'edit') {
+    const limit = verb === 'text' ? 600 : 65536;
     if (!/^[A-Za-z0-9+/]+={0,2}$/.test(v) || v.length % 4 !== 0 || v.length > Math.ceil(limit / 3) * 4) return false;
     const bytes=Buffer.from(v,'base64');
     if(bytes.length < 1 || bytes.length > limit || bytes.toString('base64') !== v) return false;
-    try { new TextDecoder('utf-8',{fatal:true}).decode(bytes);return true; } catch { return false; }
+    try {
+      const decoded = new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+      if (verb !== 'edit') return true;
+      const edit = JSON.parse(decoded);
+      if (!edit || Array.isArray(edit) || typeof edit !== 'object' ||
+          Object.keys(edit).sort().join(',') !== 'remove,text' ||
+          !Number.isInteger(edit.remove) || edit.remove < 0 || edit.remove > 16000 ||
+          typeof edit.text !== 'string' || edit.text.length > 16000 || edit.text.includes('\0')) return false;
+      // JSON can escape isolated UTF-16 surrogates even when its bytes are valid UTF-8.
+      for (let i=0; i<edit.text.length; i++) {
+        const unit=edit.text.charCodeAt(i);
+        if (unit>=0xd800 && unit<=0xdbff) {
+          const next=edit.text.charCodeAt(++i);
+          if (!(next>=0xdc00 && next<=0xdfff)) return false;
+        } else if (unit>=0xdc00 && unit<=0xdfff) return false;
+      }
+      return true;
+    } catch { return false; }
   }
   return false;
 }
@@ -99,7 +130,14 @@ function createApp(options={}) {
   function endAgent() {
     failPending('Desktop agent disconnected');
     const p=agent;agent=null;agentPreset=null;agentMeta=null;agentBuffer=Buffer.alloc(0);agentReady=false;
-    if(p) { try {p.stdin.end();p.kill();}catch{} }
+    if(p) {
+      // EOF lets the desktop agent release remotely held keys/buttons before exit.
+      // Keep a bounded fallback for a stalled capture/input process.
+      const killTimer=setTimeout(()=>{try{p.kill();}catch{}},1000);
+      killTimer.unref();
+      p.once('close',()=>clearTimeout(killTimer));
+      try {p.stdin.end();} catch {}
+    }
   }
   function endViewers() {
     for(const v of viewers) {try {v.res.end();} catch{}}
@@ -185,10 +223,27 @@ function createApp(options={}) {
     try{pathname=new URL(req.url,'http://localhost').pathname;}catch{return respond(res,400,{error:'Bad URL'});}
     try{
       if(req.method==='GET'&&(pathname==='/'||pathname==='/index.html')){
-        res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'none'",'X-Content-Type-Options':'nosniff'});
-        return res.end(fs.readFileSync(path.join(ROOT,'index.html')));
+        const page=fs.readFileSync(path.join(ROOT,'index.html'));
+        res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'",'X-Content-Type-Options':'nosniff'});
+        return res.end(page);
       }
-      if(req.method==='GET'&&pathname==='/manifest.json')return respond(res,200,{name:'PC Remote',short_name:'PC Remote',start_url:'/',display:'standalone',theme_color:'#07090f',background_color:'#07090f'});
+      if(req.method==='GET'&&(pathname==='/manifest.json'||pathname==='/manifest.webmanifest'))return respond(res,200,{
+        id:'/',name:'PC Remote',short_name:'PC Remote',description:'Control your own Windows PC from your phone.',
+        start_url:'/',scope:'/',display:'standalone',theme_color:'#07090f',background_color:'#07090f',
+        icons:[
+          {src:'/icons/icon-192.png',sizes:'192x192',type:'image/png',purpose:'any'},
+          {src:'/icons/icon-512.png',sizes:'512x512',type:'image/png',purpose:'any'},
+          {src:'/icons/icon-maskable-512.png',sizes:'512x512',type:'image/png',purpose:'maskable'},
+        ]
+      },{'Content-Type':'application/manifest+json; charset=utf-8'});
+      if(req.method==='GET'&&PWA_ASSETS.has(pathname)){
+        const [filename,type]=PWA_ASSETS.get(pathname);
+        let asset;
+        try{asset=fs.readFileSync(path.join(ROOT,'public',filename));}
+        catch(e){if(e.code==='ENOENT')return respond(res,404,{error:'App file missing. Extract the complete update and restart the Windows host.'});throw e;}
+        res.writeHead(200,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...(pathname==='/sw.js'?{'Service-Worker-Allowed':'/'}:{})});
+        return res.end(asset);
+      }
       if(req.method==='GET'&&pathname==='/api/ping'){
         const paired=!!auth(req);
         return respond(res,200,{ok:true,paired,requirePin,...(paired?{name:hostname,screen:enabled&&process.platform==='win32'}:{})});
@@ -242,11 +297,11 @@ function createApp(options={}) {
         if(b.wait===true){
           // Typed text and key actions are acknowledged only after the Windows
           // agent processes them. Unacknowledged mouse movement stays fast.
-          if(b.cmds.length<1||b.cmds.length>25||!b.cmds.every(c=>/^(text|paste|key) /.test(c)))
+          if(b.cmds.length<1||b.cmds.length>25||!b.cmds.every(c=>/^(text|paste|edit|key|combo) /.test(c)))
             return respond(res,400,{error:'Invalid typing request'});
-          const tagged=[];
+          const tagged=[], ids=[];
           const completion=b.cmds.map(c=>new Promise((resolve,reject)=>{
-            const id=crypto.randomBytes(8).toString('hex');
+            const id=crypto.randomBytes(8).toString('hex');ids.push(id);
             const timer=setTimeout(()=>{pendingInput.delete(id);reject(new Error('Windows input acknowledgement timed out'));},15000);
             timer.unref();
             pendingInput.set(id,{resolve,reject,timer});
@@ -258,6 +313,11 @@ function createApp(options={}) {
             return respond(res,200,{ok:true,delivered:true});
           } catch(e) {
             return respond(res,503,{error:e.message});
+          } finally {
+            for (const id of ids) {
+              const pending=pendingInput.get(id);
+              if(pending){clearTimeout(pending.timer);pendingInput.delete(id);}
+            }
           }
         }
         if(b.cmds.length)agent.stdin.write(b.cmds.join('\n')+'\n');
@@ -270,7 +330,7 @@ function createApp(options={}) {
         return act(b.action,e=>respond(res,e?500:200,e?{error:`Action failed: ${e.message}`}:{ok:true,msg:`${b.action} requested`}));
       }
       return respond(res,404,{error:'Not found'});
-    }catch(err){return respond(res,err.message==='Request too large'?413:400,{error:err.message});}
+    }catch(err){if(res.headersSent){res.destroy();return;}return respond(res,err.message==='Request too large'?413:400,{error:err.message});}
   });
   server.on('close',()=>{clearInterval(cpuClock);endViewers();});
   return {server,pin,port,addresses:interfaces,stop:endViewers};

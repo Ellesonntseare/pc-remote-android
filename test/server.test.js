@@ -59,7 +59,7 @@ test('phone typing encodes long Unicode text without splitting UTF-8 characters'
   const fs=require('node:fs');
   const html=fs.readFileSync(require('node:path').join(__dirname,'../index.html'),'utf8');
   const begin=html.indexOf('function encodeTextCommands(value){');
-  const end=html.indexOf('\nlet typeBusy=',begin);
+  const end=html.indexOf('\nasync function submitTyping',begin);
   assert.ok(begin!==-1 && end>begin,'phone encoder exists');
   const encode = new Function('TextEncoder','btoa',html.slice(begin,end)+';return encodeTextCommands;')(
     TextEncoder,bytes=>Buffer.from(bytes,'binary').toString('base64'));
@@ -85,6 +85,7 @@ test('Windows agent acknowledgement reaches phone request, rejects typing errors
   const meta=Buffer.from(JSON.stringify({w:1920,h:1080}));
   const makePacket=(type,data)=>{const payload=Buffer.from(typeof data==='string'?data:JSON.stringify(data));const head=Buffer.alloc(5);head[0]=type;head.writeUInt32BE(payload.length,1);return Buffer.concat([head,payload]);};
   let fake;
+  const seenEdits=[];let desktopText='';
   const app=createApp({port:0,pin:'12345678',disableActions:true,agentFactory:()=>{
     const agent=new EventEmitter();
     agent.stdout=new PassThrough();agent.stderr=new PassThrough();
@@ -94,9 +95,15 @@ test('Windows agent acknowledgement reaches phone request, rejects typing errors
       let newline;
       while((newline=buffer.indexOf('\n'))>=0){
         const line=buffer.slice(0,newline);buffer=buffer.slice(newline+1);
-        const match=/^ack ([a-f0-9]{16}) (text|paste|key) (.+)$/.exec(line);
+        const match=/^ack ([a-f0-9]{16}) (text|paste|edit|key|combo) (.+)$/.exec(line);
         if(match){
-          const ok=match[2]==='key' || Buffer.from(match[3],'base64').toString('utf8')!=='REJECT';
+          const edit=match[2]==='edit'?JSON.parse(Buffer.from(match[3],'base64').toString('utf8')):null;
+          const ok=edit?edit.text!=='REJECT':match[2]==='key' || Buffer.from(match[3],'base64').toString('utf8')!=='REJECT';
+          if(edit && ok){
+            const chars=[...new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(desktopText)].map(s=>s.segment);
+            desktopText=chars.slice(0,Math.max(0,chars.length-edit.remove)).join('')+edit.text;
+            seenEdits.push(edit);
+          }
           setImmediate(()=>agent.stdout.write(makePacket(2,{id:match[1],ok,error:ok?undefined:'Desktop rejected typing'})));
         }
       }
@@ -126,6 +133,18 @@ test('Windows agent acknowledgement reaches phone request, rejects typing errors
     assert.match(response.data.error,/rejected typing/i);
     response=await request(port,'/api/input','POST',{cmds:['mv 1 2'],wait:true},{Cookie:cookie});
     assert.equal(response.status,400);
+    response=await request(port,'/api/input','POST',{cmds:['combo 17,67'],wait:true},{Cookie:cookie});
+    assert.equal(response.status,200);assert.equal(response.data.delivered,true);
+    const editCommand=edit=>'edit '+Buffer.from(JSON.stringify(edit),'utf8').toString('base64');
+    const edits=[{remove:0,text:'hellp'},{remove:1,text:'o 😀\nمرحبا'}];
+    response=await request(port,'/api/input','POST',{cmds:edits.map(editCommand),wait:true},{Cookie:cookie});
+    assert.equal(response.status,200);assert.equal(response.data.delivered,true);
+    assert.deepEqual(seenEdits,edits);assert.equal(desktopText,'hello 😀\nمرحبا');
+    response=await request(port,'/api/input','POST',{cmds:[editCommand({remove:0,text:'REJECT'})],wait:true},{Cookie:cookie});
+    assert.equal(response.status,503);assert.match(response.data.error,/rejected typing/i);
+    response=await request(port,'/api/input','POST',{cmds:[editCommand({remove:-1,text:'bad'})],wait:true},{Cookie:cookie});
+    assert.equal(response.status,400);assert.deepEqual(seenEdits,edits);
+
   } finally {
     if(screen){screen.res.destroy();screen.req.destroy();}
     app.stop();await close(app);
@@ -173,4 +192,34 @@ test('tunnel mode restricts hostname, keeps origin checks and uses secure sessio
     r=await request(port,'/api/ping');assert.equal(r.status,403);
     r=await request(port,'/api/ping','GET',undefined,{Host:'evil.example','CF-Connecting-IP':'127.0.0.1','X-Forwarded-Host':'remote.example.com'});assert.equal(r.status,403);
   }finally{await close(app);}
+});
+
+
+test('live edits validate bounded replacement operations and Unicode',()=>{
+  const command=edit=>'edit '+Buffer.from(JSON.stringify(edit),'utf8').toString('base64');
+  for(const edit of [{remove:0,text:'hello'},{remove:5,text:''},{remove:16000,text:'😀\nمرحبا'},{remove:0,text:'a'.repeat(16000)}])
+    assert.equal(validInput(command(edit)),true);
+  for(const edit of [null,[],{}, {remove:0}, {text:'hello'}, {remove:0,text:1}, {remove:-1,text:''}, {remove:1.5,text:''},
+      {remove:16001,text:''}, {remove:0,text:'a'.repeat(16001)}, {remove:0,text:'\ud800'}, {remove:0,text:'\udc00'},
+      {remove:0,text:'a\0b'}, {remove:0,text:'a',extra:true}])
+    assert.equal(validInput(command(edit)),false,JSON.stringify(edit));
+  assert.equal(validInput('edit '+Buffer.from('{broken').toString('base64')),false);
+  assert.equal(validInput('edit /w=='),false);
+});
+
+
+test('HD screen mode selects the native-quality agent preset',async()=>{
+  const {PassThrough,Writable}=require('node:stream'),{EventEmitter}=require('node:events');
+  let selected;
+  const app=createApp({port:0,disableActions:true,agentFactory:preset=>{
+    selected=preset;const a=new EventEmitter();a.stdout=new PassThrough();a.stderr=new PassThrough();a.stdin=new Writable({write(data,enc,done){done();}});a.kill=()=>a.emit('close',0);a.stdin.on('finish',()=>a.emit('close',0));
+    setImmediate(()=>{const body=Buffer.from(JSON.stringify({w:1920,h:1080})),header=Buffer.alloc(5);header[0]=1;header.writeUInt32BE(body.length,1);a.stdout.write(Buffer.concat([header,body]));});return a;
+  }});
+  await new Promise(r=>app.server.listen(0,'127.0.0.1',r));const port=app.server.address().port;let screen;
+  try{
+    const pairing=await request(port,'/api/pair','POST',{}),cookie=pairing.headers['set-cookie'][0].split(';')[0];
+    screen=await new Promise((resolve,reject)=>{const req=http.get({hostname:'127.0.0.1',port,path:'/api/screen?p=hd',headers:{'X-PCR':'1',Cookie:cookie}},res=>res.once('data',()=>resolve({req,res})));req.on('error',reject);});
+    assert.equal(screen.res.statusCode,200);assert.equal(selected,'hd');
+    const bad=await request(port,'/api/screen?p=unknown','GET',undefined,{Cookie:cookie});assert.equal(bad.status,400);
+  }finally{if(screen){screen.res.destroy();screen.req.destroy();}app.stop();await close(app);}
 });

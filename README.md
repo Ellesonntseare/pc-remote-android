@@ -24,7 +24,7 @@ To change the port: in **Command Prompt**, run `set PORT=7777 && start.bat`. You
 
 ## 2. Phone browser controller
 
-Open the `Phone URL` in your phone browser on the same private Wi-Fi, then select **Remote screen**. Tap **Keyboard** to open a real typing panel: first tap a text field on the Windows screen, type into the phone panel, then tap **Paste into PC**. You can use **Backspace** and **Enter** too. The panel now waits for the Windows agent to acknowledge commands and displays delivery errors. Acknowledgement cannot prove the target app used the text: Windows lock/UAC screens and some elevated applications reject input. Tap **⚙ Controls** to customize:
+Open the `Phone URL` in your phone browser on the same private Wi-Fi, then select **Remote screen**. Tap a text field on the Windows screen, then open **Keyboard**. **Live typing** is on by default: type into the phone panel and committed text appears on the PC automatically. You can use **Backspace** and **Enter** too. The panel now waits for the Windows agent to acknowledge commands and displays delivery errors. Acknowledgement cannot prove the target app used the text: Windows lock/UAC screens and some elevated applications reject input. Tap **⚙ Controls** to customize:
 
 1. Assign a shortcut from the built-in safe list to any button.
 2. Reorder buttons using ↑ and ↓, or remove and add buttons (up to 16).
@@ -37,11 +37,11 @@ Your settings stay on that phone/browser. Changes affect shortcuts for that phon
 
 1. In Windows, open **Notepad** and click inside the document using the remote screen controls. (Text cannot be entered on the Windows lock screen, UAC prompts, or some elevated apps.)
 2. On the phone, open **Remote screen → Keyboard**. A visible typing box should open and focus; if your Android keyboard does not appear automatically, tap the box.
-3. Type `Hello from my phone` and tap **Paste into PC**. The phone waits for an acknowledgement from the Windows desktop agent. Confirm the words appear in Notepad.
-4. If the phone shows **Could not send**, check that the desktop is unlocked, that you are paired, and that the PC server terminal is still running. The text stays in the phone field so you can retry.
-5. If the phone reports **Paste sent to Windows** but Notepad stays empty, check that Notepad has focus and is not running as administrator. Send the error message and PC server console output when requesting help.
+3. Check **Live typing: on**, type `Hello from my phone`, and confirm it appears in Notepad without pressing Send. Backspace and phone autocorrect update the same typing segment.
+4. If live typing pauses, check the PC text before resuming: delivery might have occurred before the reply was lost. Select the PC field again and tap **New field** to start a fresh phone typing segment. The previous draft stays visible until you deliberately reset it.
+5. If the phone reports **Live typing connected** but Notepad stays empty, check that Notepad has focus and is not running as administrator. Send the error message and PC server console output when requesting help.
 
-To apply the keyboard fix to an existing installation, **close the old PC Remote host**, extract the new ZIP into a fresh folder, and run `start.bat` there. This update changes the Windows agent, Node server, browser controls, and Android WebView wrapper together; replacing only `index.html` is not sufficient.
+To apply the keyboard fix to an existing installation, **close the old PC Remote host**, extract the new ZIP into a fresh folder, and run `start.bat` there, or `start-cloudflare.bat` for the custom domain. This update changes the Windows agent, Node server, and browser controls together; replacing only `index.html` is not sufficient.
 
 ## 3. Create a new PRIVATE GitHub repo
 
@@ -81,15 +81,38 @@ The Android client uses a normal WebView and loads HTML from your Windows host. 
 - The automated server tests pass, but GitHub-hosted APK build and real Android input/screen usability must be verified after repository creation.
 
 
-## Updated typing and paste workflow
+## Live typing and paste
 
-Restart the Windows host with `start.bat` after replacing the source files so it rebuilds the desktop agent. No Android build is needed for the browser controller.
+Restart the Windows host with `start.bat` (LAN) or `start-cloudflare.bat` (custom domain) after replacing the source so it rebuilds the desktop agent. No Android build is needed for the browser controller.
 
-Open the host URL, select **Remote screen**, and click the destination text box on the PC. Open **Keyboard**, type normally or long-press the phone text box and choose **Paste**, then tap **Paste into PC**. Text is sent as one Unicode clipboard paste, preserving order and line breaks. This replaces the PC clipboard. The **Paste from phone** button reads the clipboard where the browser permits it; on local HTTP, use the long-press Paste option instead. Ctrl+V in the shortcut tray pastes the PC's existing clipboard, not the phone's.
+Select **Remote screen**, tap or click the destination PC text box, and open **Keyboard**. Live typing sends committed phone input automatically, including corrections and Backspace. It preserves the PC clipboard. Your phone keyboard may hold a composing word until it commits it; this avoids duplicate IME/autocorrect text. The input queue waits for acknowledgement before sending the next edit, so typing can show network delay over the internet.
 
-Draft text survives closing the keyboard panel and is cleared only after Windows acknowledges sending it, provided you haven't changed it during delivery. A failed send keeps the draft. Check the PC field before retrying after a connection error: delivery may have occurred before the response was lost. Some applications and elevated windows reject paste; the desktop must be unlocked.
+The phone text box mirrors the segment you have typed since selecting a field. It does not read pre-existing PC text. Remote clicks and caret-changing shortcuts start a fresh segment; pending typing must finish first. The **Enter** button waits for prior text, sends Enter, then starts a fresh segment. Enter can submit a form in the target app. If you use the PC keyboard, move the caret locally, or change windows outside the controller, select the PC field and tap **New field** before continuing.
+
+Closing the keyboard keeps the current draft. A disconnect, screen reconnection, tab suspension, or failed delivery pauses live typing and preserves the draft; edits are never replayed automatically. Check what reached the PC, reselect the destination, and tap **New field** to resume. This clears only the phone mirror. **New field** does not erase PC text.
+
+To paste copied phone text, use **Paste from phone**, or long-press the phone text box and choose **Paste**. Live mode sends it automatically. If clipboard reading is unavailable on local HTTP, native long-press Paste still works. Ctrl+V in the shortcut tray pastes the PC clipboard.
+
+For a compose-first workflow, turn **Live typing** off, prepare text locally, then tap **Paste into PC**. Manual paste replaces the PC clipboard. This is also a fallback for target apps whose emoji/combining-character deletion differs from phone grapheme handling. Unicode insertion, input ordering, corrections, IME handling, error recovery, and Enter are covered by automated tests, but the actual target Windows app and phone keyboard still require a device check.
+
+Desktop mouse selection/dragging and scrolling are supported in addition to phone touch controls. Shortcut customization remains available under **Controls**.
 
 Connections are automatic by default. Anyone able to reach the host on your trusted LAN can control it while the host is running. Keep the host on a trusted private network and close its terminal to stop access. To require a PIN again, add `"requirePin": true` to your local `config.json` and restart the host.
 
 
 For the custom domain **remote.teamtrader.co.za**, follow [CLOUDFLARE.md](CLOUDFLARE.md) and run `start-cloudflare.bat`. Protect the hostname with Cloudflare Access before publishing its tunnel route.
+
+
+## Install to phone
+
+Open `https://remote.teamtrader.co.za` after Cloudflare sign-in and tap **Install to phone**. Supported Android browsers offer the native install prompt. On iPhone, open the site in Safari, tap Share, and choose Add to Home Screen. If no prompt is available, the button shows the browser steps. Installation is a web app shortcut with a standalone window; no Android APK build is required. The phone still needs internet access and the Windows host running. Screen frames, authenticated pages and API responses are never cached for offline use.
+
+## Desktop and screen controls
+
+On a PC browser, select **Remote screen**, click the remote PC picture, and type with your physical keyboard. Ordinary text, Backspace, Enter, navigation and common shortcuts use the ordered remote input queue. Input is captured only while the remote picture has keyboard focus; typing into settings, the phone text panel or another browser field stays local. For desktop IME/dead-key composition, use the visible Keyboard panel.
+
+**HD** is available on phones and PCs. It uses the full monitor resolution, JPEG quality 85, and up to 15 frames per second. It is the initial choice for desktop browsers with a fine pointer and at least 900px width; phone browsers start at Med, and saved quality preferences take priority. Cycle the quality button to reduce bandwidth or CPU use on slower connections.
+
+Use **Reconnect** to reopen a stalled stream. The status distinguishes Connecting, Waiting for screen, Live and Disconnected, and detects a stream with no decoded frames. Reconnect preserves the phone draft, pauses uncertain typing and releases remote mouse buttons; check the PC field and tap New field before resuming.
+
+Use **Full screen** to enter the browser's fullscreen view, or **Expand view** on browsers without fullscreen support. Zoom buttons enlarge the picture from 100% to 400%; the percentage resets it. At higher zoom, **Pan view** moves the local picture without clicking or scrolling the PC. Switch back to **Control PC** to operate the zoomed screen. Mouse/touch positions map to the displayed part of the PC image.

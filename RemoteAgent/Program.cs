@@ -14,6 +14,9 @@ using System.Windows.Forms;
 internal static class Program
 {
     private static readonly object OutputLock = new();
+    private static readonly object HeldInputLock = new();
+    private static readonly HashSet<char> HeldMouseButtons = new();
+    private static readonly HashSet<int> HeldKeys = new();
     private static volatile bool running = true;
     private static Rectangle primary;
 
@@ -83,6 +86,11 @@ internal static class Program
             Console.Error.WriteLine("Desktop agent error: " + ex);
             Environment.ExitCode = 1;
         }
+        finally
+        {
+            running = false;
+            ReleaseHeldInput();
+        }
     }
 
     private static void Send(Stream output, byte type, byte[] payload)
@@ -151,7 +159,7 @@ internal static class Program
                 }
             }
         }
-        finally { running = false; }
+        finally { ReleaseHeldInput(); running = false; }
     }
 
     private static int Number(string s) => int.Parse(s, CultureInfo.InvariantCulture);
@@ -201,17 +209,31 @@ internal static class Program
                 Clipboard.SetText(pasteText.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", "\r\n"));
                 SendPaste();
                 break;
+            case "edit":
+                if (words.Length != 1) throw new ArgumentException("Missing live edit");
+                var editBytes = Convert.FromBase64String(words[0]);
+                if (editBytes.Length > 65536) throw new ArgumentException("Live edit is too large");
+                using (var document = JsonDocument.Parse(new UTF8Encoding(false, true).GetString(editBytes)))
+                {
+                    var edit = document.RootElement;
+                    if (edit.ValueKind != JsonValueKind.Object || edit.EnumerateObject().Count() != 2 ||
+                        !edit.TryGetProperty("remove", out var removeValue) || !removeValue.TryGetInt32(out int remove) ||
+                        remove < 0 || remove > 16000 || !edit.TryGetProperty("text", out var textValue) ||
+                        textValue.ValueKind != JsonValueKind.String)
+                        throw new ArgumentException("Invalid live edit");
+                    var text = textValue.GetString()!;
+                    if (text.Length > 16000 || text.Contains('\0')) throw new ArgumentException("Invalid live text");
+                    // Strict encoding also rejects JSON-escaped isolated surrogates.
+                    _ = new UTF8Encoding(false, true).GetBytes(text);
+                    SendEdit(remove, text);
+                }
+                break;
             case "text":
                 if (words.Length != 1) return;
                 var bytes = Convert.FromBase64String(words[0]);
                 if (bytes.Length > 600) return;
                 var inputText = new UTF8Encoding(false, true).GetString(bytes);
-                foreach (char ch in inputText)
-                {
-                    if (ch == '\r') continue;
-                    if (ch == '\n') { PressKey(13, "key"); continue; }
-                    SendUnicode(ch);
-                }
+                SendEdit(0, inputText);
                 break;
         }
     }
@@ -224,14 +246,31 @@ internal static class Program
             _ => (0u, 0u)
         };
         if (down == 0) return;
-        if (kind != "up") Native.mouse_event(down, 0, 0, 0, UIntPtr.Zero);
-        if (kind != "down") Native.mouse_event(up, 0, 0, 0, UIntPtr.Zero);
+        lock (HeldInputLock)
+        {
+            if (kind != "up") { HeldMouseButtons.Add(button); Native.mouse_event(down, 0, 0, 0, UIntPtr.Zero); }
+            if (kind != "down") { Native.mouse_event(up, 0, 0, 0, UIntPtr.Zero); HeldMouseButtons.Remove(button); }
+        }
     }
     private static void PressKey(int value, string kind)
     {
         if (value < 0 || value > 255) return;
-        if (kind != "keyup") Native.keybd_event((byte)value, 0, 0, UIntPtr.Zero);
-        if (kind != "keydown") Native.keybd_event((byte)value, 0, 2, UIntPtr.Zero);
+        lock (HeldInputLock)
+        {
+            if (kind != "keyup") { HeldKeys.Add(value); Native.keybd_event((byte)value, 0, 0, UIntPtr.Zero); }
+            if (kind != "keydown") { Native.keybd_event((byte)value, 0, 2, UIntPtr.Zero); HeldKeys.Remove(value); }
+        }
+    }
+    private static void ReleaseHeldInput()
+    {
+        lock (HeldInputLock)
+        {
+            // Release only inputs this agent held, leaving physical user input alone.
+            foreach (char button in HeldMouseButtons.ToArray())
+                try { PressMouse(button, "up"); } catch { }
+            foreach (int key in HeldKeys.ToArray())
+                try { PressKey(key, "keyup"); } catch { }
+        }
     }
     private static void SendPaste()
     {
@@ -249,16 +288,31 @@ internal static class Program
         // Do not restore the old clipboard: the target handles paste asynchronously.
     }
 
-    private static void SendUnicode(char value)
+    private static void SendEdit(int remove, string text)
     {
-        var down = new Native.INPUT { type = 1, U = new Native.INPUTUNION { ki = new Native.KEYBDINPUT { wScan = value, dwFlags = 0x0004 } } };
-        var up = new Native.INPUT { type = 1, U = new Native.INPUTUNION { ki = new Native.KEYBDINPUT { wScan = value, dwFlags = 0x0004 | 0x0002 } } };
-        var inputs = new[] { down, up };
-        uint inserted = Native.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Native.INPUT>());
-        if (inserted != inputs.Length)
+        var inputs = new List<Native.INPUT>();
+        void Add(ushort value, bool unicode)
+        {
+            uint flags = unicode ? 0x0004u : 0u;
+            var key = new Native.KEYBDINPUT { wVk = unicode ? (ushort)0 : value, wScan = unicode ? value : (ushort)0, dwFlags = flags };
+            inputs.Add(new Native.INPUT { type = 1, U = new Native.INPUTUNION { ki = key } });
+            key.dwFlags |= 0x0002;
+            inputs.Add(new Native.INPUT { type = 1, U = new Native.INPUTUNION { ki = key } });
+        }
+        // The browser removes the changed suffix at the remote caret before
+        // inserting its replacement. One SendInput call keeps the entire edit
+        // ordered, including surrogate pairs and line breaks, without clipboard changes.
+        for (int i = 0; i < remove; i++) Add(8, false);
+        foreach (char ch in text.Replace("\r\n", "\n").Replace("\r", "\n"))
+            Add(ch == '\n' ? (ushort)13 : ch, ch != '\n');
+        if (inputs.Count == 0) return;
+        var batch = inputs.ToArray();
+        uint inserted = Native.SendInput((uint)batch.Length, batch, Marshal.SizeOf<Native.INPUT>());
+        if (inserted != batch.Length)
             throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(),
-                "Windows refused Unicode keyboard input (check that the desktop is unlocked and the target app is not elevated)");
+                "Windows refused some live keyboard input. Check the PC field before resuming typing.");
     }
+
 }
 
 internal static class Native

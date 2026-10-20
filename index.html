@@ -4,8 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#07090f">
-<link rel="manifest" href="/manifest.json">
-<link rel="icon" href="/icon.svg">
+<link rel="manifest" href="/manifest.json" crossorigin="use-credentials">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PC Remote">
+<link rel="stylesheet" href="/pwa.css">
+<script src="/pwa.js" defer></script>
+<link rel="stylesheet" href="/screen-tools.css">
+<script src="/screen-tools.js" defer></script>
+<link rel="stylesheet" href="/desktop-controls.css">
+<script src="/desktop-controls.js" defer></script>
 <title>PC Remote</title>
 <style>
 :root{--bg:#07090f;--panel:#10131c;--panel2:#151925;--line:rgba(255,255,255,.08);--text:#f7f8fb;--muted:#8b93a6;--blue:#4f7cff;--green:#37d996;--red:#ff5361;--amber:#ffb84d;--purple:#a879ff;--shadow:0 24px 70px rgba(0,0,0,.4)}
@@ -90,6 +101,7 @@
     <div style="display:flex;align-items:center"><div class="connection"><i class="dot"></i><span id="conn">Connecting</span></div><button id="unpairBtn" onclick="unpair()">Disconnect</button></div>
   </div>
 
+  <button type="button" id="installPhone" aria-haspopup="dialog">Install to phone</button>
   <main id="main">
     <section class="card hero">
       <div class="eyebrow">Connected device</div><h1 id="name">Your PC</h1><p>Control power, media and system status from your phone.</p>
@@ -126,15 +138,15 @@
 </div>
 
 <div id="rs" class="hide">
-  <div class="rsbar"><b id="rsst">Connecting…</b><span><button id="rsq" onclick="rsQ()">Med</button><button onclick="rsClose()">✕</button></span></div>
+  <div class="rsbar"><b id="rsst">Connecting…</b><span><button id="rsq" onclick="rsQ()" title="Quality: Low, Med, High, or HD at the PC monitor’s native resolution" aria-label="Change screen quality, including HD">Med</button><button onclick="rsClose()">✕</button></span></div>
   <section id="typePanel" class="typePanel hide" aria-label="Type text on Windows">
-    <div class="typeTop"><strong>Phone keyboard → Windows PC</strong><button type="button" onclick="rsTypeClose()" aria-label="Close typing panel">✕ Close</button></div>
+    <div class="typeTop"><strong>Phone keyboard → Windows PC</strong><button type="button" id="typingMode" onclick="rsTypingMode()">Live typing: on</button><button type="button" onclick="rsTypeClose()" aria-label="Close typing panel">✕ Close</button></div>
     <textarea id="typeText" rows="2" maxlength="16000" dir="auto" autocapitalize="sentences" autocomplete="off" spellcheck="false" placeholder="Type here with your phone keyboard…" aria-describedby="typeHint"></textarea>
-    <p class="typeHelp" id="typeHint">First tap a text field on the PC screen (e.g. Notepad), then type or paste here and tap Paste into PC. You can also long-press here and Paste copied text. Sending replaces the PC clipboard.</p>
-    <div class="typeActions"><button type="button" class="sendText" id="sendText" onclick="rsSendText()">Paste into PC</button><button type="button" id="readClipboard" onclick="rsReadClipboard()">Paste from phone</button><button type="button" onclick="rsTypeKey(8)">⌫ Backspace</button><button type="button" onclick="rsTypeKey(13)">↵ Enter</button></div>
+    <p class="typeHelp" id="typeHint">Select a PC text field, then type here: changes are sent live. Turn live typing off to compose and paste a whole message. Use New field after moving the PC caret.</p>
+    <div class="typeActions"><button type="button" class="sendText hide" id="sendText" onclick="rsSendText()">Paste into PC</button><button type="button" id="newField" onclick="rsNewField()">New field</button><button type="button" id="readClipboard" onclick="rsReadClipboard()">Paste from phone</button><button type="button" onclick="rsTypeKey(8)">⌫ Backspace</button><button type="button" onclick="rsTypeKey(13)">↵ Enter</button></div>
     <p id="typeStatus" role="status" aria-live="polite"></p>
   </section>
-  <div class="rsview" id="rsv"><canvas id="rsc"></canvas></div>
+  <div class="rsview" id="rsv"><canvas id="rsc" tabindex="0" aria-label="Remote PC screen. Click to control it with your mouse and keyboard."></canvas></div>
   <div class="rskeys hide" id="rsk" onmousedown="event.preventDefault()"></div>
   <div class="rsbar rsbot" onmousedown="event.preventDefault()"><button id="rsm" onclick="rsMode()">Trackpad</button><button onclick="qc('click l')">Left</button><button onclick="qc('click r')">Right</button><button onclick="rsKb()">Keyboard</button><button id="keyToggle" onclick="rsToggleKeys()">Hide keys</button><button onclick="rsPrefsOpen()" aria-label="Customize controls">⚙ Controls</button></div>
   <div id="rsSettings" class="hide" role="dialog" aria-label="Customize remote controls" aria-modal="true">
@@ -153,6 +165,7 @@
   </div>
 
 </div>
+<dialog id="installHelp" aria-labelledby="installHelpTitle"></dialog>
 <div class="msg" id="msg"></div>
 <div class="modal" id="modal"><div class="sheet"><div class="handle"></div><div class="dangerIcon">!</div><h3 id="q">Are you sure?</h3><p>This action will be sent to the connected PC.</p><div class="confirm"><button onclick="closeM()">Cancel</button><button class="yes" id="yes">Continue</button></div></div></div>
 <script>
@@ -173,8 +186,8 @@ function closeM(){$('modal').classList.remove('on')}setInterval(poll,5000);docum
 // ---- Remote screen: trackpad / touch control. One finger = move, tap = click, hold = drag,
 // two fingers = scroll, two-finger tap = right click.
 const ls=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch{}};
-const rs={on:0,ab:null,m:null,mode:ls('pcr_mode')||'pad',qi:+(ls('pcr_q')||1),pend:null,dec:0};let qq=[],qb=0,g=null;
-const QN=['low','med','high'],KEYS=[['Esc','key 27'],['Tab','key 9'],['Win','key 91'],['Alt+Tab','combo 18,9'],['←','key 37'],['↑','key 38'],['↓','key 40'],['→','key 39'],['Enter','key 13'],['⌫','key 8'],['Del','key 46'],['Home','key 36'],['End','key 35'],['PgUp','key 33'],['PgDn','key 34'],['Ctrl+C','combo 17,67'],['Ctrl+V','combo 17,86'],['Ctrl+A','combo 17,65'],['Ctrl+Z','combo 17,90'],['Win+D','combo 91,68'],['Task Mgr','combo 17,16,27'],['F5','key 116']];
+const rs={on:0,ab:null,m:null,mode:ls('pcr_mode')||'pad',qi:['0','1','2','3'].includes(ls('pcr_q'))?Number(ls('pcr_q')):(window.innerWidth>=900&&window.matchMedia?.('(pointer:fine)')?.matches?3:1),pend:null,dec:0};let qq=[],qb=0,g=null;
+const QN=['low','med','high','hd'],QL=['Low','Med','High','HD · native'],KEYS=[['Esc','key 27'],['Tab','key 9'],['Win','key 91'],['Alt+Tab','combo 18,9'],['←','key 37'],['↑','key 38'],['↓','key 40'],['→','key 39'],['Enter','key 13'],['⌫','key 8'],['Del','key 46'],['Home','key 36'],['End','key 35'],['PgUp','key 33'],['PgDn','key 34'],['Ctrl+C','combo 17,67'],['Ctrl+V','combo 17,86'],['Ctrl+A','combo 17,65'],['Ctrl+Z','combo 17,90'],['Win+D','combo 91,68'],['Task Mgr','combo 17,16,27'],['F5','key 116']];
 const DEFAULT_SHORTCUTS=['key 27','combo 18,9','key 13','key 8','combo 17,67','combo 17,86','combo 91,68','key 116'];
 const validShortcuts=()=>KEYS.map(k=>k[1]);
 function loadShortcuts(){try{const a=JSON.parse(ls('pcr_shortcuts_v1')||'null');if(Array.isArray(a)&&a.length<=16&&a.every(v=>validShortcuts().includes(v)))return a;}catch{}return DEFAULT_SHORTCUTS.slice()}
@@ -215,19 +228,63 @@ function rsSetSize(value){if(!['44','56'].includes(value))return;keyHeight=value
 function rsAddShortcut(){if(shortcuts.length>=16)return;shortcuts.push('key 13');rsSaveShortcuts()}
 function rsResetPrefs(){shortcuts=DEFAULT_SHORTCUTS.slice();sens=1;cols='4';keyHeight='44';showKeys=true;ls('pcr_sensitivity','1');ls('pcr_keycols',cols);ls('pcr_keyheight',keyHeight);ls('pcr_keys_visible','true');rsSaveShortcuts();rsPrefsOpen()}
 rsRenderShortcuts();
-function qc(c){const l=qq[qq.length-1],[a,x,y]=c.split(' ');if(l&&l.startsWith(a+' ')&&(a==='mv'||a==='wheel'||a==='abs')){const[,lx,ly]=l.split(' ');qq[qq.length-1]=a==='abs'?c:a==='wheel'?'wheel '+(+lx + +x):'mv '+(+lx + +x)+' '+(+ly + +y)}else qq.push(c);flush()}
-async function flush(){if(qb||!qq.length)return;qb=1;const c=qq.splice(0,50);try{await api('/api/input',{method:'POST',body:JSON.stringify({cmds:c})})}catch{}qb=0;flush()}
-function rsFrame(b){rs.pend=b;if(rs.dec)return;rs.dec=1;(async()=>{while(rs.pend){const p=rs.pend;rs.pend=null;try{const im=await createImageBitmap(new Blob([p],{type:'image/jpeg'})),c=$('rsc');if(c.width!==im.width||c.height!==im.height){c.width=im.width;c.height=im.height}c.getContext('2d').drawImage(im,0,0);im.close();$('rsst').textContent=rs.m?rs.m.w+'×'+rs.m.h:'Live'}catch{}}rs.dec=0})()}
-async function rsRun(){const ab=rs.ab=new AbortController();try{const r=await fetch('/api/screen?p='+QN[rs.qi],{headers:{'X-PCR':'1'},signal:ab.signal});if(!r.ok){const d=await r.json().catch(()=>({}));msg(d.error||'Screen unavailable');$('rsst').textContent=d.error||'Screen unavailable';return rsClose()}const rd=r.body.getReader();let b=new Uint8Array(0);for(;;){const{done,value}=await rd.read();if(done)break;const n=new Uint8Array(b.length+value.length);n.set(b);n.set(value,b.length);b=n;while(b.length>=5){const L=((b[1]<<24)|(b[2]<<16)|(b[3]<<8)|b[4])>>>0;if(b.length<5+L)break;const t=b[0],p=b.slice(5,5+L);b=b.subarray(5+L);if(t)rs.m=JSON.parse(new TextDecoder().decode(p));else rsFrame(p)}}}catch(e){if(e.name==='AbortError')return}if(rs.on&&rs.ab===ab){$('rsst').textContent='Reconnecting…';setTimeout(()=>{if(rs.on&&rs.ab===ab)rsRun()},1500)}}
-function rsOpen(){rs.on=1;$('rs').classList.remove('hide');document.body.style.overflow='hidden';$('rsq').textContent=['Low','Med','High'][rs.qi];$('rsm').textContent=rs.mode==='pad'?'Trackpad':'Touch';$('rsst').textContent='Connecting…';rsRun()}
-function rsClose(){rs.on=0;if(rs.ab)rs.ab.abort();rsPrefsClose();rsTypeClose();$('rs').classList.add('hide');document.body.style.overflow='';qq=[]}
+function rsTypingDirty(){return liveTyping && !live.paused && (composing || typeBusy || live.keys.length || $('typeText').value!==live.sent)}
+function rsCanPoint(){
+  if(typeBusy||rsTypingDirty()) {msg('Wait for the typing to finish before changing the PC field.');return false;}
+  return true;
+}
+function qc(c){
+  if(!rs.on)return;
+  if(!/^up [lrm]$/.test(c) && !rsCanPoint())return;
+  if(liveTyping && !live.paused && /^(click|down|dbl|key|combo)\b/.test(c))rsResetTypingContext(false);
+  const l=qq[qq.length-1],[a,x,y]=c.split(' ');
+  if(l&&l.startsWith(a+' ')&&(a==='mv'||a==='wheel'||a==='abs')){const[,lx,ly]=l.split(' ');qq[qq.length-1]=a==='abs'?c:a==='wheel'?'wheel '+(+lx + +x):'mv '+(+lx + +x)+' '+(+ly + +y)}else qq.push(c);
+  flush();
+}
+async function flush(){
+  if(qb||typeBusy||!qq.length||!rs.on)return;
+  qb=1;const c=qq.splice(0,50);
+  try{const d=await api('/api/input',{method:'POST',body:JSON.stringify({cmds:c})});if(!d.ok||d.status!==200)throw Error(d.error||'PC input unavailable');}
+  catch(e){qq=[];rsPauseLive('PC controls disconnected. Select the PC field again, then tap New field.');msg(e.message||'PC input unavailable');}
+  finally{qb=0;flush();rsScheduleLive();}
+}
+function rsFrame(b){rs.pend=b;if(rs.dec)return;rs.dec=1;(async()=>{while(rs.pend){const p=rs.pend;rs.pend=null;try{const im=await createImageBitmap(new Blob([p],{type:'image/jpeg'})),c=$('rsc');if(c.width!==im.width||c.height!==im.height){c.width=im.width;c.height=im.height}c.getContext('2d').drawImage(im,0,0);im.close();window.PCRScreenTools?.frame();$('rsst').textContent=rs.m?rs.m.w+'×'+rs.m.h:'Live'}catch{}}rs.dec=0})()}
+async function rsRun(){
+  if(!rs.on)return;
+  if(rs.ab)rs.ab.abort();
+  rs.m=null;window.PCRScreenTools?.connecting();
+  const ab=rs.ab=new AbortController();
+  try{
+    const r=await fetch('/api/screen?p='+QN[rs.qi],{headers:{'X-PCR':'1'},signal:ab.signal});
+    if(rs.ab!==ab||!rs.on){await r.body?.cancel();return;}
+    if(!r.ok){const d=await r.json().catch(()=>({}));msg(d.error||'Screen unavailable');$('rsst').textContent=d.error||'Screen unavailable';rsPauseLive('Screen unavailable. Reopen the screen, select a PC field, then tap New field.');return rsClose();}
+    const rd=r.body.getReader();let b=new Uint8Array(0);
+    for(;;){
+      const{done,value}=await rd.read();if(done||rs.ab!==ab||!rs.on)break;
+      const n=new Uint8Array(b.length+value.length);n.set(b);n.set(value,b.length);b=n;
+      while(b.length>=5){
+        const L=((b[1]<<24)|(b[2]<<16)|(b[3]<<8)|b[4])>>>0;
+        if(L>8*1024*1024)throw Error('Invalid screen packet');
+        if(b.length<5+L)break;
+        const t=b[0],p=b.slice(5,5+L);b=b.subarray(5+L);
+        if(t===1){rs.m=JSON.parse(new TextDecoder().decode(p));window.PCRScreenTools?.metadata();rsScheduleLive();}else if(t===0)rsFrame(p);
+      }
+    }
+  }catch(e){if(e.name==='AbortError'||rs.ab!==ab)return;}
+  if(rs.on&&rs.ab===ab){
+    rs.m=null;window.PCRScreenTools?.disconnected();rsPauseLive('Screen connection changed. Select the PC field again, then tap New field.');
+    $('rsst').textContent='Reconnecting…';setTimeout(()=>{if(rs.on&&rs.ab===ab)rsRun()},1500);
+  }
+}
+function rsOpen(){rs.on=1;rs.m=null;$('rs').classList.remove('hide');document.body.style.overflow='hidden';$('rsq').textContent=QL[rs.qi];$('rsm').textContent=rs.mode==='pad'?'Trackpad':'Touch';$('rsst').textContent='Connecting…';rsRun()}
+function rsClose(){rs.on=0;rs.m=null;window.PCRScreenTools?.closed();if(rs.ab)rs.ab.abort();if(live.sent||$('typeText').value||typeBusy)rsPauseLive('Screen closed. Select the PC field again, then tap New field.');rsPrefsClose();rsTypeClose();$('rs').classList.add('hide');document.body.style.overflow='';qq=[]}
 function rsMode(){rs.mode=rs.mode==='pad'?'touch':'pad';ls('pcr_mode',rs.mode);$('rsm').textContent=rs.mode==='pad'?'Trackpad':'Touch'}
-function rsQ(){rs.qi=(rs.qi+1)%3;ls('pcr_q',rs.qi);$('rsq').textContent=['Low','Med','High'][rs.qi];rs.ab.abort();rsRun()}
-document.addEventListener('visibilitychange',()=>{if(!rs.on)return;if(document.hidden)rs.ab.abort();else rsRun()});
-function box(){const c=$('rsc'),e=c.getBoundingClientRect(),a=c.width/c.height||1;let w=e.width,h=e.height,x=e.left,y=e.top;if(w/h>a){const nw=h*a;x+=(w-nw)/2;w=nw}else{const nh=w/a;y+=(h-nh)/2;h=nh}return{x,y,w,h}}
+function rsQ(){if(typeBusy){msg('Wait for typing to finish before changing quality.');return;}rs.qi=(rs.qi+1)%QN.length;ls('pcr_q',rs.qi);$('rsq').textContent=QL[rs.qi];rsPauseLive('Quality changed. Select the PC field again, then tap New field.');rsRun()}
+document.addEventListener('visibilitychange',()=>{if(!rs.on)return;if(document.hidden){rs.m=null;window.PCRScreenTools?.disconnected('Screen paused');rsPauseLive('Screen paused. Select the PC field again, then tap New field.');rs.ab?.abort();}else rsRun()});
+function box(){if(window.PCRScreenTools)return window.PCRScreenTools.imageBox();const c=$('rsc'),e=c.getBoundingClientRect(),a=c.width/c.height||1;let w=e.width,h=e.height,x=e.left,y=e.top;if(w/h>a){const nw=h*a;x+=(w-nw)/2;w=nw}else{const nh=w/a;y+=(h-nh)/2;h=nh}return{x,y,w,h}}
 function pos(t){const b=box(),m=rs.m;if(!m)return;const f=(v,o,s,M)=>Math.round(Math.min(Math.max((v-o)/s,0),1)*(M-1));qc('abs '+f(t.clientX,b.x,b.w,m.w)+' '+f(t.clientY,b.y,b.h,m.h))}
 const V=$('rsv');
-V.addEventListener('touchstart',e=>{e.preventDefault();const t=e.touches;if(t.length>=2){if(g){clearTimeout(g.lp);if(g.dr)qc('up l')}g={n:2,y:(t[0].clientY+t[1].clientY)/2,t:Date.now(),mv:0,ac:0};return}
+V.addEventListener('touchstart',e=>{e.preventDefault();if(!rsCanPoint())return;const t=e.touches;if(t.length>=2){if(g){clearTimeout(g.lp);if(g.dr)qc('up l')}g={n:2,y:(t[0].clientY+t[1].clientY)/2,t:Date.now(),mv:0,ac:0};return}
 g={n:1,x:t[0].clientX,y:t[0].clientY,lx:t[0].clientX,ly:t[0].clientY,t:Date.now(),mv:0,dr:0,rx:0,ry:0};if(rs.mode==='touch')pos(t[0]);
 g.lp=setTimeout(()=>{if(g&&g.n===1&&!g.mv){navigator.vibrate&&navigator.vibrate(15);if(rs.mode==='pad'){g.dr=1;qc('down l')}else{g.rc=1;qc('click r')}}},450)},{passive:false});
 V.addEventListener('touchmove',e=>{e.preventDefault();if(!g)return;const t=e.touches;
@@ -238,79 +295,195 @@ if(rs.mode==='touch'){pos(p);return}
 const b=box(),m=rs.m;if(!m)return;const k=m.w/b.w*(1+Math.min(Math.hypot(dx,dy),30)/30)*sens;g.rx+=dx*k;g.ry+=dy*k;const ix=Math.trunc(g.rx),iy=Math.trunc(g.ry);g.rx-=ix;g.ry-=iy;if(ix||iy)qc('mv '+ix+' '+iy)},{passive:false});
 V.addEventListener('touchend',e=>{e.preventDefault();if(!g||e.touches.length)return;clearTimeout(g.lp);const tap=!g.mv&&Date.now()-g.t<300;if(g.n===2){if(tap)qc('click r')}else if(g.dr)qc('up l');else if(tap)qc('click l');g=null},{passive:false});
 V.addEventListener('touchcancel',()=>{if(g){clearTimeout(g.lp);if(g.dr)qc('up l')}g=null});
-// Mobile keyboard: focus a visible textarea, compose text locally, and send only
-// when the user taps Send. This avoids IME autocorrect / composition duplicates.
+let mouseDrag=false;
+V.addEventListener('pointerdown',e=>{
+  if(e.pointerType!=='mouse'||!rsCanPoint())return;
+  e.preventDefault();V.setPointerCapture(e.pointerId);$('rsc').focus({preventScroll:true});pos(e);
+  qc(e.button===2?'down r':'down l');mouseDrag=true;
+});
+V.addEventListener('pointermove',e=>{if(e.pointerType==='mouse'&&mouseDrag&&rsCanPoint())pos(e);});
+V.addEventListener('pointerup',e=>{
+  if(e.pointerType!=='mouse'||!mouseDrag)return;
+  e.preventDefault();qc(e.button===2?'up r':'up l');mouseDrag=false;rsScheduleLive();
+});
+function releaseMouse(){if(mouseDrag){qc('up l');qc('up r');mouseDrag=false;rsScheduleLive();}}
+V.addEventListener('pointercancel',e=>{if(e.pointerType==='mouse')releaseMouse();});
+V.addEventListener('lostpointercapture',releaseMouse);
+V.addEventListener('contextmenu',e=>e.preventDefault());
+V.addEventListener('wheel',e=>{e.preventDefault();if(rsCanPoint())qc('wheel '+Math.max(-9999,Math.min(9999,Math.round(-e.deltaY))));},{passive:false});
+
+// Compose locally through IME, then transmit committed edits in order.
 let composing=false;
-$('typeText').addEventListener('compositionstart',()=>composing=true);
-$('typeText').addEventListener('compositionend',()=>composing=false);
+let liveTyping=ls('pcr_live_typing')!=='false';
+const live={sent:'',paused:false,generation:0,timer:null,keys:[]};
+const graphemeSegmenter=typeof Intl.Segmenter==='function'?new Intl.Segmenter(undefined,{granularity:'grapheme'}):null;
+function textElements(value){return graphemeSegmenter?Array.from(graphemeSegmenter.segment(value),x=>x.segment):Array.from(value)}
+function liveEdit(before,after){
+  const old=textElements(before),next=textElements(after);let common=0;
+  while(common<old.length&&common<next.length&&old[common]===next[common])common++;
+  return {remove:old.length-common,text:next.slice(common).join('')};
+}
+function encodeInputCommand(verb,value){
+  const bytes=new TextEncoder().encode(value);
+  if(bytes.length>65536)throw Error('Text is too long. Use a smaller selection.');
+  let binary='';for(let i=0;i<bytes.length;i+=4096)binary+=String.fromCharCode(...bytes.subarray(i,i+4096));
+  return verb+' '+btoa(binary);
+}
+function rsTypeStatus(text,state='success'){const e=$('typeStatus');e.textContent=text;e.dataset.state=state;}
+function rsUpdateTypingUI(){
+  $('typingMode').textContent=liveTyping?'Live typing: on':'Live typing: off';
+  $('typingMode').setAttribute('aria-pressed',String(liveTyping));
+  $('sendText').classList.toggle('hide',liveTyping);
+  $('newField').classList.toggle('hide',!liveTyping);
+  $('typeText').placeholder=liveTyping?'Type here — text appears on the PC as you type…':'Compose here, then tap Paste into PC…';
+  $('typeText').setAttribute('autocorrect',liveTyping?'off':'on');
+}
+function rsPauseLive(message){
+  // Keep text captured before queued Enter/navigation/shortcut barriers
+  // available if delivery is uncertain. Commands themselves add no draft text.
+  const draft=live.keys.filter(job=>job.reset||job.key===13).map(job=>job.value+'\n').join('');
+  if(draft)$('typeText').value=draft+$('typeText').value;
+  for(const job of live.keys)job.resolve(false);live.keys=[];
+  clearTimeout(live.timer);live.timer=null;live.paused=true;live.generation++;
+  rsTypeStatus(message,'error');
+}
+function rsResetTypingContext(focus=true){
+  for(const job of live.keys)job.resolve(false);live.keys=[];
+  clearTimeout(live.timer);live.timer=null;live.generation++;live.sent='';live.paused=false;
+  $('typeText').value='';composing=false;
+  rsTypeStatus('Live typing ready. Changes go to the selected PC field.');
+  if(focus)$('typeText').focus();
+}
+function rsNewField(){
+  if(typeBusy||qb||qq.length||live.keys.length){rsTypeStatus('Wait for the current input to finish before starting a new field.','pending');return;}
+  if(!rs.on||!rs.m){rsTypeStatus('Wait for the remote screen to connect.','error');return;}
+  rsResetTypingContext();
+}
+function rsTypingMode(){
+  if(typeBusy||qb||rsTypingDirty()) {rsTypeStatus('Wait for typing to finish before changing mode.','pending');return;}
+  liveTyping=!liveTyping;ls('pcr_live_typing',String(liveTyping));
+  live.generation++;clearTimeout(live.timer);
+  // A manual draft becomes live only after the user deliberately starts a field.
+  if(liveTyping){live.sent='';live.paused=!!$('typeText').value;rsTypeStatus(live.paused?'Select the PC field, then tap New field to start live typing.':'Live typing ready.');}
+  else rsTypeStatus('Compose here and tap Paste into PC. Sending replaces the PC clipboard.');
+  rsUpdateTypingUI();
+}
+function rsScheduleLive(){
+  clearTimeout(live.timer);live.timer=null;
+  if(!liveTyping||live.paused||composing||!rs.on||!rs.m||typeBusy||qb||qq.length||mouseDrag||g?.dr)return;
+  if(!live.keys.length&&$('typeText').value===live.sent)return;
+  rsTypeStatus('Typing…','pending');
+  live.timer=setTimeout(rsDrainLive,40);
+}
+async function typingRequest(commands){
+  const abort=new AbortController();const timeout=setTimeout(()=>abort.abort(),18000);
+  try{
+    const d=await api('/api/input',{method:'POST',body:JSON.stringify({cmds:commands,wait:true}),signal:abort.signal});
+    if(!d.ok||d.status!==200||d.delivered!==true)throw Error(d.error||'PC did not confirm the input');
+  }finally{clearTimeout(timeout);}
+}
+async function rsDrainLive(){
+  live.timer=null;
+  if(!liveTyping||live.paused||composing||!rs.on||!rs.m||typeBusy||qb||qq.length||mouseDrag||g?.dr)return;
+  // A raw key is an event-order barrier: synchronize its captured text first,
+  // apply the key, and only then deliver text entered after that key event.
+  const job=live.keys[0],value=job?job.value:$('typeText').value;
+  if(!job&&value===live.sent)return;
+  const generation=live.generation;typeBusy=true;
+  try{
+    const commands=[];
+    if(value!==live.sent)commands.push(encodeInputCommand('edit',JSON.stringify(liveEdit(live.sent,value))));
+    if(job)commands.push(job.command||'key '+job.key);
+    await typingRequest(commands);
+    if(generation!==live.generation)return;
+    live.sent=job&&(job.reset||job.key===13)?'':value;
+    if(job){live.keys.shift();job.resolve(true);}
+    rsTypeStatus('Live typing connected.');
+  }catch(e){
+    if(generation===live.generation)rsPauseLive('Live typing paused: '+(e.message||'connection lost')+'. Check the PC text, select the field, then tap New field. Your draft is kept.');
+  }finally{typeBusy=false;flush();rsScheduleLive();}
+}
+$('typeText').addEventListener('compositionstart',()=>{composing=true;clearTimeout(live.timer);live.timer=null;});
+$('typeText').addEventListener('compositionend',()=>{composing=false;rsScheduleLive();});
+$('typeText').addEventListener('input',e=>{if(!e.isComposing)rsScheduleLive();});
+$('typeText').addEventListener('beforeinput',e=>{
+  if(liveTyping&&!live.paused&&!composing&&['insertLineBreak','insertParagraph'].includes(e.inputType)){e.preventDefault();rsTypeKey(13);return;}
+  if(liveTyping&&!live.paused&&!composing&&e.inputType==='deleteContentBackward'&&!$('typeText').value){e.preventDefault();rsTypeKey(8);}
+});
 function rsKb(){
-  $('rs').classList.add('typing');
-  $('typePanel').classList.remove('hide');
-  $('typeStatus').textContent='';
-  $('typeText').focus(); // direct tap -> native phone keyboard
+  $('rs').classList.add('typing');$('typePanel').classList.remove('hide');rsUpdateTypingUI();
+  if(!live.paused)rsTypeStatus(liveTyping?'Live typing ready. Select a PC field before typing.':'Compose here, then tap Paste into PC.');
+  $('typeText').focus();
 }
 function rsTypeClose(){
-  $('rs').classList.remove('typing');
-  $('typeText').blur();
-  $('typeStatus').textContent='';
-  $('typePanel').classList.add('hide');
+  $('rs').classList.remove('typing');$('typeText').blur();$('typePanel').classList.add('hide');
 }
 function encodeTextCommands(value){
   const chunks=[];let acc='';let byteLength=0;
-  // Bound each UTF-8 payload to 300 bytes, never breaking a multibyte character.
-  for(const char of value){
-    const size=new TextEncoder().encode(char).length;
-    if(byteLength+size>300 && acc){chunks.push(acc);acc='';byteLength=0;}
-    acc+=char;byteLength+=size;
-  }
+  for(const char of value){const size=new TextEncoder().encode(char).length;if(byteLength+size>300&&acc){chunks.push(acc);acc='';byteLength=0;}acc+=char;byteLength+=size;}
   if(acc)chunks.push(acc);
-  return chunks.map(chunk=>{
-    const bytes=new TextEncoder().encode(chunk);
-    return 'text '+btoa(String.fromCharCode(...bytes));
-  });
+  return chunks.map(chunk=>'text '+btoa(String.fromCharCode(...new TextEncoder().encode(chunk))));
 }
 let typeBusy=false;
 async function submitTyping(commands){
-  if(typeBusy || !rs.on)return false;
-  typeBusy=true;
-  const sendButton=$('sendText');
-  const controls=[...$('typePanel').querySelectorAll('button')];controls.forEach(b=>b.disabled=true);
-  const status=$('typeStatus');status.dataset.state='pending';status.textContent='Sending…';
-  try{
-    for(let i=0;i<commands.length;i+=25){
-      const d=await api('/api/input',{method:'POST',body:JSON.stringify({cmds:commands.slice(i,i+25),wait:true})});
-      if(!d.ok || d.status!==200){
-        if(d.status===401)showPair('Your session has expired. Pair again.');
-        throw new Error(d.error||('PC rejected input (HTTP '+d.status+')'));
-      }
-    }
-    status.dataset.state='success';status.textContent='Paste sent to Windows. Check the selected PC text field.';
-    return true;
-  }catch(e){
-    status.dataset.state='error';status.textContent='Could not send: '+(e.message||'Check the PC connection');
-    return false;
-  }finally{typeBusy=false;controls.forEach(b=>b.disabled=false);}
+  if(typeBusy||qb||qq.length||!rs.on||!rs.m)return false;
+  typeBusy=true;const generation=live.generation;
+  rsTypeStatus('Sending…','pending');
+  try{await typingRequest(commands);if(generation!==live.generation)return false;rsTypeStatus('Input sent to Windows. Check the selected PC field.');return true;}
+  catch(e){rsPauseLive('Input may have been delivered. Check the PC before retrying. '+(e.message||'Connection lost'));return false;}
+  finally{typeBusy=false;flush();rsScheduleLive();}
 }
 async function rsSendText(){
-  if(typeBusy || composing)return;
-  const input=$('typeText');const value=input.value;
-  if(!value){$('typeStatus').textContent='Type something first.';input.focus();return;}
-  // Do not remove the text if the network request fails: user can retry.
-  const bytes=new TextEncoder().encode(value);
-  if(bytes.length>65536){$('typeStatus').textContent='Text is too long. Send a smaller selection.';return;}
-  if(await submitTyping(['paste '+btoa(String.fromCharCode(...bytes))])) {
-    if(input.value===value)input.value='';
-  }
+  if(liveTyping){rsScheduleLive();return;}
+  if(typeBusy||composing)return;
+  const input=$('typeText'),value=input.value;
+  if(!value){rsTypeStatus('Type something first.');input.focus();return;}
+  try{if(await submitTyping([encodeInputCommand('paste',value)])){if(input.value===value)input.value='';}}
+  catch(e){rsTypeStatus(e.message,'error');}
 }
 async function rsReadClipboard(){
   rsKb();
   try{
-    if(!navigator.clipboard?.readText)throw new Error('unavailable');
-    const text=await navigator.clipboard.readText();
-    const input=$('typeText');input.setRangeText(text,input.selectionStart,input.selectionEnd,'end');
-    $('typeStatus').textContent='Ready. Tap Paste into PC to send.';
-  }catch{ $('typeStatus').textContent='Long-press the text box and choose Paste, then tap Paste into PC.'; }
+    if(!navigator.clipboard?.readText)throw Error('unavailable');
+    const text=await navigator.clipboard.readText(),input=$('typeText');
+    if(input.value.length+text.length-(input.selectionEnd-input.selectionStart)>16000)throw Error('Too much text');
+    input.setRangeText(text,input.selectionStart,input.selectionEnd,'end');
+    if(liveTyping)rsScheduleLive();else rsTypeStatus('Ready. Tap Paste into PC to send.');
+  }catch{rsTypeStatus('Long-press the text box and choose Paste'+(liveTyping?'.':', then tap Paste into PC.'));}
 }
+function rsQueueRemoteCommand(command){
+  if(!liveTyping||live.paused||!rs.on||!rs.m){rsTypeStatus('Turn on live typing, select the PC field and tap New field before using desktop keys.','error');return Promise.resolve(false);}
+  if(composing)return Promise.resolve(false);
+  if(live.keys.length>=128){rsPauseLive('Too many pending keys. Check the PC, select a field, then tap New field.');return Promise.resolve(false);}
+  const input=$('typeText');
+  const completion=new Promise(resolve=>live.keys.push({command,value:input.value,reset:true,resolve}));
+  // Navigation and shortcuts can change the PC caret/selection. Subsequent
+  // printable keys begin at that new location instead of editing old text.
+  input.value='';rsScheduleLive();return completion;
+}
+async function rsTypeKey(key){
+  if(composing)return;
+  if(liveTyping){
+    if(live.paused||!rs.on||!rs.m){rsTypeStatus('Select the PC field and tap New field before continuing.','error');return false;}
+    const input=$('typeText');
+    if(key===8&&input.value){
+      let start=input.selectionStart,end=input.selectionEnd;
+      if(start===end&&start>0){const before=textElements(input.value.slice(0,start));start-=before.at(-1).length;}
+      input.setRangeText('',start,end,'end');rsScheduleLive();input.focus();return true;
+    }
+    if(key===8||key===13){
+      if(live.keys.length>=128){rsPauseLive('Too many pending keys. Check the PC, select a field, then tap New field.');return false;}
+      const completion=new Promise(resolve=>live.keys.push({key,value:input.value,resolve}));
+      // Enter starts a new local context immediately. Its old text is retained
+      // by the queued barrier until Windows acknowledges the ordered input.
+      if(key===13)input.value='';
+      rsScheduleLive();input.focus();return completion;
+    }
+  }
+  if(rsTypingDirty()||typeBusy){rsTypeStatus('Wait for typing to finish before sending this key.','pending');return;}
+  return submitTyping(['key '+key]);
+}
+rsUpdateTypingUI();
 function fitRemoteViewport(){
   const viewport=window.visualViewport;
   $('rs').style.height=(viewport?viewport.height:window.innerHeight)+'px';
@@ -319,6 +492,5 @@ function fitRemoteViewport(){
 window.visualViewport?.addEventListener('resize',fitRemoteViewport);
 window.visualViewport?.addEventListener('scroll',fitRemoteViewport);
 window.addEventListener('resize',fitRemoteViewport);fitRemoteViewport();
-async function rsTypeKey(key){await submitTyping(['key '+key]);}
 </script>
 </body></html>
