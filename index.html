@@ -18,7 +18,7 @@
 .modal{position:fixed;inset:0;background:#03050ad9;backdrop-filter:blur(12px);display:none;align-items:flex-end;justify-content:center;padding:16px}.modal.on{display:flex}.sheet{width:100%;max-width:480px;border:1px solid var(--line);background:#111520;border-radius:26px;padding:23px;box-shadow:0 -20px 70px #0008}.sheet .handle{width:38px;height:4px;background:#353c4c;border-radius:99px;margin:0 auto 22px}.sheet .dangerIcon{width:48px;height:48px;border-radius:16px;background:#ff53611a;color:var(--red);display:grid;place-items:center;font-size:20px;margin-bottom:13px}.sheet h3{margin:0;font-size:18px}.sheet p{margin:7px 0 18px;color:var(--muted);font-size:12px}.confirm{display:grid;grid-template-columns:1fr 1fr;gap:9px}.confirm button{height:48px;border-radius:14px;border:1px solid var(--line);background:#1a1f2b;color:#fff;font-weight:700}.confirm .yes{background:var(--red);border:0}.msg{position:fixed;left:50%;bottom:18px;transform:translateX(-50%) translateY(20px);opacity:0;pointer-events:none;background:#eef2fa;color:#0b0e15;padding:10px 14px;border-radius:12px;font-size:11px;font-weight:700;box-shadow:0 12px 35px #0008;transition:.2s;z-index:40}.msg.show{opacity:1;transform:translateX(-50%) translateY(0)}.hide{display:none!important}
 @media(min-width:600px){body{padding-top:32px}.app{max-width:520px}}
 #rs{position:fixed;inset:0;z-index:30;background:#000;display:flex;flex-direction:column;overscroll-behavior:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
-.rsbar{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 10px;background:#0b0f19;font-size:12px;color:#b8c0d0}.rsbar span{display:flex;gap:8px}.rsbot{justify-content:center;flex-wrap:wrap}
+.rsbar{flex-shrink:0;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 10px;background:#0b0f19;font-size:12px;color:#b8c0d0}.rsbar span{display:flex;gap:8px}.rsbot{justify-content:center;flex-wrap:wrap}
 .rsbar button,.rskeys button{border:1px solid var(--line);background:#171c28;color:#e9edf5;border-radius:11px;padding:9px 12px;font-size:12px;font-weight:700}
 .rsview{flex:1;min-height:0;touch-action:none;user-select:none;-webkit-user-select:none}.rsview canvas{width:100%;height:100%;object-fit:contain;display:block}
 .rskeys{display:grid;grid-template-columns:repeat(var(--key-cols,4),minmax(0,1fr));gap:6px;padding:8px;background:#0b0f19;max-height:32vh;overflow:auto}.rskeys button{min-height:var(--key-height,44px);padding:7px 3px;word-break:normal}
@@ -28,7 +28,7 @@
 .typePanel .typeTop{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:10px}
 .typePanel .typeTop strong{font-size:13px}
 .typePanel button{color:#fff;background:#223456;border:1px solid #435875;border-radius:10px;min-height:40px;padding:8px 12px;font-weight:700}
-.typePanel textarea{display:block;resize:vertical;width:100%;min-height:54px;max-height:130px;max-width:100%;font:16px/1.4 system-ui,sans-serif;color:#f7f9fc;background:#07101c;border:1px solid #546686;border-radius:11px;padding:10px;outline:none}
+.typePanel textarea{display:block;resize:none;width:100%;min-height:54px;max-height:130px;max-width:100%;font:16px/1.4 system-ui,sans-serif;color:#f7f9fc;background:#07101c;border:1px solid #546686;border-radius:11px;padding:10px;outline:none}
 .typePanel textarea:focus{border-color:#8caeff;box-shadow:0 0 0 2px #8caeff30}
 .typeActions{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:8px}
 .typeActions .sendText{background:#3b70ed;border-color:#3b70ed;flex:1}
@@ -37,6 +37,7 @@
 #typeStatus[data-state="error"]{color:#ffadba}
 @media(max-height:530px){.typePanel textarea{min-height:42px;max-height:66px}.typeHelp{display:none}}
 
+#rs.typing .rskeys{display:none}
 /* Private pairing gate. Visible before any controls are usable. */
 #pairGate{position:fixed;inset:0;z-index:100;background:linear-gradient(160deg,#0d1529 0%,#07090f 68%);display:grid;place-items:center;padding:20px}
 #pairGate.hide{display:none}
@@ -70,7 +71,7 @@
 </style>
 </head>
 <body>
-<div id="pairGate" aria-label="Pair phone with Windows PC">
+<div id="pairGate" class="hide" aria-label="Pair phone with Windows PC">
   <form id="pairForm" class="pairCard">
     <div class="pairMark">▣</div>
     <div class="eyebrow">Private local network</div>
@@ -86,7 +87,7 @@
 <div class="app">
   <div class="topbar">
     <div class="brand"><div class="brandmark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><div class="brandtext"><strong>PC Remote</strong><span>Local network control</span></div></div>
-    <div style="display:flex;align-items:center"><div class="connection"><i class="dot"></i><span id="conn">Connecting</span></div><button id="unpairBtn" onclick="unpair()">Unpair</button></div>
+    <div style="display:flex;align-items:center"><div class="connection"><i class="dot"></i><span id="conn">Connecting</span></div><button id="unpairBtn" onclick="unpair()">Disconnect</button></div>
   </div>
 
   <main id="main">
@@ -128,9 +129,9 @@
   <div class="rsbar"><b id="rsst">Connecting…</b><span><button id="rsq" onclick="rsQ()">Med</button><button onclick="rsClose()">✕</button></span></div>
   <section id="typePanel" class="typePanel hide" aria-label="Type text on Windows">
     <div class="typeTop"><strong>Phone keyboard → Windows PC</strong><button type="button" onclick="rsTypeClose()" aria-label="Close typing panel">✕ Close</button></div>
-    <textarea id="typeText" rows="2" maxlength="4000" autocapitalize="sentences" autocomplete="off" spellcheck="false" placeholder="Type here with your phone keyboard…" aria-describedby="typeHint"></textarea>
-    <p class="typeHelp" id="typeHint">First tap a text field on the PC screen (e.g. Notepad), then type here and tap Send. Text is not saved on your phone.</p>
-    <div class="typeActions"><button type="button" class="sendText" id="sendText" onclick="rsSendText()">Send text</button><button type="button" onclick="rsTypeKey(8)">⌫ Backspace</button><button type="button" onclick="rsTypeKey(13)">↵ Enter</button></div>
+    <textarea id="typeText" rows="2" maxlength="16000" dir="auto" autocapitalize="sentences" autocomplete="off" spellcheck="false" placeholder="Type here with your phone keyboard…" aria-describedby="typeHint"></textarea>
+    <p class="typeHelp" id="typeHint">First tap a text field on the PC screen (e.g. Notepad), then type or paste here and tap Paste into PC. You can also long-press here and Paste copied text. Sending replaces the PC clipboard.</p>
+    <div class="typeActions"><button type="button" class="sendText" id="sendText" onclick="rsSendText()">Paste into PC</button><button type="button" id="readClipboard" onclick="rsReadClipboard()">Paste from phone</button><button type="button" onclick="rsTypeKey(8)">⌫ Backspace</button><button type="button" onclick="rsTypeKey(13)">↵ Enter</button></div>
     <p id="typeStatus" role="status" aria-live="polite"></p>
   </section>
   <div class="rsview" id="rsv"><canvas id="rsc"></canvas></div>
@@ -161,7 +162,7 @@ async function api(path,opt={}){const r=await fetch(path,{...opt,headers:{'Conte
 let paired=false;
 function showPair(error=''){paired=false;$('pairGate').classList.remove('hide');$('pairError').textContent=error;$('conn').textContent='Not paired';}
 function showConnected(d){paired=true;$('pairGate').classList.add('hide');$('conn').textContent='Connected';if(d.name)$('name').textContent=d.name;$('screenBtn').classList.toggle('hide',!d.screen);poll();}
-async function init(){try{const d=await api('/api/ping');if(d.paired)showConnected(d);else showPair();}catch{showPair('PC is not reachable. Check that start.bat is running and you opened the correct address.');}}
+async function init(){try{const d=await api('/api/ping');if(d.paired)showConnected(d);else if(!d.requirePin){const connected=await api('/api/pair',{method:'POST',body:'{}'});if(!connected.ok)throw new Error(connected.error);return init();}else showPair();}catch{showPair('PC is not reachable. Check that start.bat is running and you opened the correct address.');}}
 $('pairForm').addEventListener('submit',async e=>{e.preventDefault();const b=$('pairSubmit');b.disabled=true;$('pairError').textContent='Pairing with the local PC…';try{const d=await api('/api/pair',{method:'POST',body:JSON.stringify({pin:$('pin').value})});if(d.ok){$('pin').value='';init();}else $('pairError').textContent=d.error||'Pairing failed';}catch{$('pairError').textContent='Cannot reach this PC';}finally{b.disabled=false;}});
 async function unpair(){rsClose();try{await api('/api/unpair',{method:'POST',body:'{}'});}catch{}showPair();}
 async function send(action){msg('Sending command…');try{const d=await api('/api/cmd',{method:'POST',body:JSON.stringify({action})});if(d.status===401){showPair('Your session has expired. Pair again.');return;}msg(d.msg||d.error||'Command sent');poll()}catch{msg('PC not reachable')}}
@@ -239,14 +240,18 @@ V.addEventListener('touchend',e=>{e.preventDefault();if(!g||e.touches.length)ret
 V.addEventListener('touchcancel',()=>{if(g){clearTimeout(g.lp);if(g.dr)qc('up l')}g=null});
 // Mobile keyboard: focus a visible textarea, compose text locally, and send only
 // when the user taps Send. This avoids IME autocorrect / composition duplicates.
+let composing=false;
+$('typeText').addEventListener('compositionstart',()=>composing=true);
+$('typeText').addEventListener('compositionend',()=>composing=false);
 function rsKb(){
+  $('rs').classList.add('typing');
   $('typePanel').classList.remove('hide');
   $('typeStatus').textContent='';
   $('typeText').focus(); // direct tap -> native phone keyboard
 }
 function rsTypeClose(){
+  $('rs').classList.remove('typing');
   $('typeText').blur();
-  $('typeText').value='';
   $('typeStatus').textContent='';
   $('typePanel').classList.add('hide');
 }
@@ -268,7 +273,8 @@ let typeBusy=false;
 async function submitTyping(commands){
   if(typeBusy || !rs.on)return false;
   typeBusy=true;
-  const sendButton=$('sendText');sendButton.disabled=true;
+  const sendButton=$('sendText');
+  const controls=[...$('typePanel').querySelectorAll('button')];controls.forEach(b=>b.disabled=true);
   const status=$('typeStatus');status.dataset.state='pending';status.textContent='Sending…';
   try{
     for(let i=0;i<commands.length;i+=25){
@@ -278,19 +284,41 @@ async function submitTyping(commands){
         throw new Error(d.error||('PC rejected input (HTTP '+d.status+')'));
       }
     }
-    status.dataset.state='success';status.textContent='Windows accepted the keyboard input. Check the selected PC text field.';
+    status.dataset.state='success';status.textContent='Paste sent to Windows. Check the selected PC text field.';
     return true;
   }catch(e){
     status.dataset.state='error';status.textContent='Could not send: '+(e.message||'Check the PC connection');
     return false;
-  }finally{typeBusy=false;sendButton.disabled=false;}
+  }finally{typeBusy=false;controls.forEach(b=>b.disabled=false);}
 }
 async function rsSendText(){
+  if(typeBusy || composing)return;
   const input=$('typeText');const value=input.value;
   if(!value){$('typeStatus').textContent='Type something first.';input.focus();return;}
   // Do not remove the text if the network request fails: user can retry.
-  if(await submitTyping(encodeTextCommands(value))) input.value='';
+  const bytes=new TextEncoder().encode(value);
+  if(bytes.length>65536){$('typeStatus').textContent='Text is too long. Send a smaller selection.';return;}
+  if(await submitTyping(['paste '+btoa(String.fromCharCode(...bytes))])) {
+    if(input.value===value)input.value='';
+  }
 }
+async function rsReadClipboard(){
+  rsKb();
+  try{
+    if(!navigator.clipboard?.readText)throw new Error('unavailable');
+    const text=await navigator.clipboard.readText();
+    const input=$('typeText');input.setRangeText(text,input.selectionStart,input.selectionEnd,'end');
+    $('typeStatus').textContent='Ready. Tap Paste into PC to send.';
+  }catch{ $('typeStatus').textContent='Long-press the text box and choose Paste, then tap Paste into PC.'; }
+}
+function fitRemoteViewport(){
+  const viewport=window.visualViewport;
+  $('rs').style.height=(viewport?viewport.height:window.innerHeight)+'px';
+  $('rs').style.top=(viewport?viewport.offsetTop:0)+'px';
+}
+window.visualViewport?.addEventListener('resize',fitRemoteViewport);
+window.visualViewport?.addEventListener('scroll',fitRemoteViewport);
+window.addEventListener('resize',fitRemoteViewport);fitRemoteViewport();
 async function rsTypeKey(key){await submitTyping(['key '+key]);}
 </script>
 </body></html>

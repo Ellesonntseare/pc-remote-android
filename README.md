@@ -1,14 +1,14 @@
 # PC Remote — Windows host + customizable Android controller
 
-A **LAN-only** remote controller for your own Windows PC. The Windows server stays on your computer; a responsive phone browser interface **or** the native Android app can control it after entering the server's temporary 8-digit pairing PIN.
+A remote controller for your own Windows PC. The Windows server stays on your computer; a responsive phone browser interface **or** the native Android app can control it immediately, without a PIN, on your trusted private network.
 
-> **Security:** Screen control and keyboard input are powerful. Use this only on your own PC and your trusted private Wi-Fi. The server is visible, has no unattended setup, and should **never** be exposed to the public internet. Traffic is local HTTP, **not end-to-end encrypted**.
+> **Security:** Screen control and keyboard input are powerful. Use this only on your own PC and your trusted private Wi-Fi. The server is visible, has no unattended setup, and should **never** be exposed to the public internet. LAN traffic uses HTTP. For internet access use the Access-protected Cloudflare Tunnel configuration in [CLOUDFLARE.md](CLOUDFLARE.md); do not expose the origin port directly.
 
 ## What's included
 
 - `start.bat`, `server.js`, `RemoteAgent/` — repaired Windows screen-sharing server and visible .NET desktop capture agent.
 - `index.html` — responsive control UI with custom shortcut buttons (add / remove / remap / reorder), shortcut tray visibility, 3/4/5 columns, standard/large buttons and adjustable trackpad sensitivity (0.5–2.5x). Settings are saved locally on each phone using web storage.
-- `android/` — Android app written in Kotlin. It opens a validated private-LAN PC IP and loads the same remote controller inside an Android WebView. It remembers only the PC IP and port; the PC still requires its PIN.
+- `android/` — Android app written in Kotlin. It opens a validated private-LAN PC IP and loads the same remote controller inside an Android WebView. It remembers only the PC IP and port; the PC connects automatically.
 - `.github/workflows/android-apk.yml` — automatically creates an installable Android **debug APK** using GitHub Actions. It is available as a private workflow artifact, *not* a public Play Store release.
 - `publish-private.bat` — creates the private GitHub repo and pushes files from your PC after you explicitly confirm.
 
@@ -16,7 +16,7 @@ A **LAN-only** remote controller for your own Windows PC. The Windows server sta
 
 1. Install [Node.js 20+](https://nodejs.org/) and the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (already installed if the previous repair compiled).
 2. Extract this updated project **into a new folder**. Close the old PC Remote terminal first to free port `7666`.
-3. Double-click **`start.bat`**. Wait for the Windows desktop agent build to finish and read the printed `Phone URL` and 8-digit `PAIRING PIN`.
+3. Double-click **`start.bat`**. Wait for the Windows desktop agent build to finish and read the printed `Phone URL` and connection status.
 4. Allow Windows Firewall access for **private networks only**, if prompted.
 5. To stop access, close the terminal. Do not disable antivirus or bypass Windows protections.
 
@@ -24,22 +24,22 @@ To change the port: in **Command Prompt**, run `set PORT=7777 && start.bat`. You
 
 ## 2. Phone browser controller
 
-Open the `Phone URL` in your phone browser on the same private Wi-Fi, enter the PIN, then select **Remote screen**. Tap **Keyboard** to open a real typing panel: first tap a text field on the Windows screen, type into the phone panel, then tap **Send text**. You can use **Backspace** and **Enter** too. The panel now waits for the Windows agent to acknowledge commands and displays delivery errors. Acknowledgement cannot prove the target app used the text: Windows lock/UAC screens and some elevated applications reject input. Tap **⚙ Controls** to customize:
+Open the `Phone URL` in your phone browser on the same private Wi-Fi, then select **Remote screen**. Tap **Keyboard** to open a real typing panel: first tap a text field on the Windows screen, type into the phone panel, then tap **Paste into PC**. You can use **Backspace** and **Enter** too. The panel now waits for the Windows agent to acknowledge commands and displays delivery errors. Acknowledgement cannot prove the target app used the text: Windows lock/UAC screens and some elevated applications reject input. Tap **⚙ Controls** to customize:
 
 1. Assign a shortcut from the built-in safe list to any button.
 2. Reorder buttons using ↑ and ↓, or remove and add buttons (up to 16).
 3. Change the number of columns (3–5), button height, and trackpad sensitivity (0.5–2.5×).
 4. Toggle the shortcut panel with **Show keys / Hide keys**.
 
-Your settings stay on that phone/browser. Changes affect shortcuts for that phone, **not** the PC's actual keyboard layout. All input still goes through PIN-protected local routes.
+Your settings stay on that phone/browser. Changes affect shortcuts for that phone, **not** the PC's actual keyboard layout. All input still goes through local session routes.
 
 ## Keyboard troubleshooting
 
 1. In Windows, open **Notepad** and click inside the document using the remote screen controls. (Text cannot be entered on the Windows lock screen, UAC prompts, or some elevated apps.)
 2. On the phone, open **Remote screen → Keyboard**. A visible typing box should open and focus; if your Android keyboard does not appear automatically, tap the box.
-3. Type `Hello from my phone` and tap **Send text**. The phone waits for an acknowledgement from the Windows desktop agent. Confirm the words appear in Notepad.
+3. Type `Hello from my phone` and tap **Paste into PC**. The phone waits for an acknowledgement from the Windows desktop agent. Confirm the words appear in Notepad.
 4. If the phone shows **Could not send**, check that the desktop is unlocked, that you are paired, and that the PC server terminal is still running. The text stays in the phone field so you can retry.
-5. If the phone reports **Windows accepted the keyboard input** but Notepad stays empty, check that Notepad has focus and is not running as administrator. Send the error message and PC server console output when requesting help.
+5. If the phone reports **Paste sent to Windows** but Notepad stays empty, check that Notepad has focus and is not running as administrator. Send the error message and PC server console output when requesting help.
 
 To apply the keyboard fix to an existing installation, **close the old PC Remote host**, extract the new ZIP into a fresh folder, and run `start.bat` there. This update changes the Windows agent, Node server, browser controls, and Android WebView wrapper together; replacing only `index.html` is not sufficient.
 
@@ -59,7 +59,7 @@ This project is packaged for publishing, but GitHub won't receive it until you r
 1. In the *private* `pc-remote-android` GitHub repository, open **Actions** → **Build Android APK**.
 2. Open the newest successful run. Under **Artifacts**, download **`PC-Remote-Android-APK`** (a ZIP containing `android-debug.apk`).
 3. Extract the APK on your Android phone and tap it to install; Android may ask you to allow installation from that file-manager/browser source.
-4. Open **PC Remote**, enter the PC's IP (for example `192.168.8.105`, but use the actual IP displayed by the host) and port `7666`, then connect and enter the PIN displayed in the Windows terminal.
+4. Open **PC Remote**, enter the PC's IP (for example `192.168.8.105`, but use the actual IP displayed by the host) and port `7666`, then connect. No PIN is required by default.
 5. Tap **Remote screen** → **⚙ Controls** to personalize on-phone controls.
 
 The Android client uses a normal WebView and loads HTML from your Windows host. **You must run the updated Windows host files for custom controls to appear in the APK.** It doesn't connect over the internet or use a third-party cloud relay.
@@ -68,7 +68,7 @@ The Android client uses a normal WebView and loads HTML from your Windows host. 
 
 ## Developer instructions
 
-- Run `npm test` in the project root to test PIN pairing, authorization, and server-side input validation (doesn't require Windows).
+- Run `npm test` in the project root to test automatic connections, optional PIN pairing, authorization, and server-side input validation (doesn't require Windows).
 - Open the repository in Android Studio to build the APK locally, or install JDK 17 + Android SDK 35 + Gradle 8.10.2 and run `gradle :android:assembleDebug`.
 - Android app uses JavaScript + DOM storage, HTTP access strictly to a manually entered private IPv4 host/port, and no extra Android device privileges (no accessibility, microphone, or remote app installation).
 - `.NET 8` agent sources are in `RemoteAgent/`. The original issue (`CS0266` at `Program.cs:188`) is fixed in this version.
@@ -76,6 +76,20 @@ The Android client uses a normal WebView and loads HTML from your Windows host. 
 ## Limitations
 
 - Windows agent captures the **primary monitor** only; it does not bypass UAC prompts or the Windows lock screen.
-- PC + phone must use the same trusted LAN; this is **not reverse remote over mobile data/the internet**.
+- PC + phone must use the same trusted LAN; direct LAN mode requires the same network; [Cloudflare Tunnel mode](CLOUDFLARE.md) supports internet access.
 - Android WebView streaming and keyboard behavior depend on the phone's version of Android System WebView; the APK and text injection still need a live Windows/Android test.
 - The automated server tests pass, but GitHub-hosted APK build and real Android input/screen usability must be verified after repository creation.
+
+
+## Updated typing and paste workflow
+
+Restart the Windows host with `start.bat` after replacing the source files so it rebuilds the desktop agent. No Android build is needed for the browser controller.
+
+Open the host URL, select **Remote screen**, and click the destination text box on the PC. Open **Keyboard**, type normally or long-press the phone text box and choose **Paste**, then tap **Paste into PC**. Text is sent as one Unicode clipboard paste, preserving order and line breaks. This replaces the PC clipboard. The **Paste from phone** button reads the clipboard where the browser permits it; on local HTTP, use the long-press Paste option instead. Ctrl+V in the shortcut tray pastes the PC's existing clipboard, not the phone's.
+
+Draft text survives closing the keyboard panel and is cleared only after Windows acknowledges sending it, provided you haven't changed it during delivery. A failed send keeps the draft. Check the PC field before retrying after a connection error: delivery may have occurred before the response was lost. Some applications and elevated windows reject paste; the desktop must be unlocked.
+
+Connections are automatic by default. Anyone able to reach the host on your trusted LAN can control it while the host is running. Keep the host on a trusted private network and close its terminal to stop access. To require a PIN again, add `"requirePin": true` to your local `config.json` and restart the host.
+
+
+For the custom domain **remote.teamtrader.co.za**, follow [CLOUDFLARE.md](CLOUDFLARE.md) and use `config.cloudflare.example.json`. Protect the hostname with Cloudflare Access before publishing its tunnel route.

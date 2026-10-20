@@ -27,6 +27,15 @@ function privateIP(ip) {
     (parts[0] === 192 && parts[1] === 168) ||
     (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31);
 }
+function loopbackIP(ip) {
+  return ['127.0.0.1','::1','::ffff:127.0.0.1'].includes(ip);
+}
+function tunnelHost(value) {
+  if (value === undefined || value === '') return '';
+  if (typeof value !== 'string' || value.length > 253 || !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(value))
+    throw new Error('tunnelHostname must be an exact DNS hostname, without scheme, port or path');
+  return value.toLowerCase();
+}
 function sameHost(hostHeader, allowed) {
   if (!hostHeader) return false;
   const host = hostHeader.toLowerCase().replace(/:\d+$/, '');
@@ -42,7 +51,7 @@ async function jsonBody(req, max=4096) {
   try { return JSON.parse(Buffer.concat(parts).toString('utf8') || '{}'); } catch { throw new Error('Invalid JSON'); }
 }
 function validInput(c) {
-  if(typeof c !== 'string' || c.length > 900) return false;
+  if(typeof c !== 'string' || c.length > 90000) return false;
   const [verb, ...rest] = c.split(' '), v=rest.join(' ');
   if (['mv','abs'].includes(verb)) return /^-?\d{1,6} -?\d{1,6}$/.test(v);
   if (verb === 'wheel') return /^-?\d{1,5}$/.test(v);
@@ -50,15 +59,18 @@ function validInput(c) {
   if (verb === 'dbl') return v === '';
   if (['key','keydown','keyup'].includes(verb)) return /^\d{1,3}$/.test(v) && Number(v)<=255;
   if (verb === 'combo') return /^\d{1,3}(,\d{1,3}){1,3}$/.test(v) && v.split(',').every(x => Number(x)<=255);
-  if (verb === 'text') {
-    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(v) || v.length % 4 !== 0 || v.length > 800) return false;
+  if (verb === 'text' || verb === 'paste') {
+    const limit = verb === 'paste' ? 65536 : 600;
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(v) || v.length % 4 !== 0 || v.length > Math.ceil(limit / 3) * 4) return false;
     const bytes=Buffer.from(v,'base64');
-    if(bytes.length < 1 || bytes.length > 600 || bytes.toString('base64') !== v) return false;
+    if(bytes.length < 1 || bytes.length > limit || bytes.toString('base64') !== v) return false;
     try { new TextDecoder('utf-8',{fatal:true}).decode(bytes);return true; } catch { return false; }
   }
   return false;
 }
 function createApp(options={}) {
+  const tunnelHostname = tunnelHost(options.tunnelHostname);
+  const requirePin = options.requirePin ?? !!options.pin;
   const pin = options.pin || String(crypto.randomInt(10000000,99999999));
   const port = options.port ?? Number(process.env.PORT || 7666);
   const enabled = options.screen ?? true;
@@ -163,7 +175,11 @@ function createApp(options={}) {
   cpuClock.unref();
   const server=http.createServer(async(req,res)=>{
     const ip=req.socket.remoteAddress;
-    if(!privateIP(ip)||!sameHost(req.headers.host,hostnames))return respond(res,403,{error:'Local network only'});
+    // Tunnel mode accepts only the local connector and explicitly named host.
+    // Never use X-Forwarded-For / CF-Connecting-IP as proof of authorization.
+    const viaTunnel = !!tunnelHostname && loopbackIP(ip) && sameHost(req.headers.host,new Set([tunnelHostname]));
+    const allowed = tunnelHostname ? viaTunnel : privateIP(ip) && sameHost(req.headers.host,hostnames);
+    if(!allowed)return respond(res,403,{error:tunnelHostname?'Tunnel host only':'Local network only'});
     if(req.headers.origin){try{const origin=new URL(req.headers.origin);if(origin.host!==req.headers.host)return respond(res,403,{error:'Cross-origin request rejected'});}catch{return respond(res,403,{error:'Invalid origin'});}}
     let pathname;
     try{pathname=new URL(req.url,'http://localhost').pathname;}catch{return respond(res,400,{error:'Bad URL'});}
@@ -175,7 +191,7 @@ function createApp(options={}) {
       if(req.method==='GET'&&pathname==='/manifest.json')return respond(res,200,{name:'PC Remote',short_name:'PC Remote',start_url:'/',display:'standalone',theme_color:'#07090f',background_color:'#07090f'});
       if(req.method==='GET'&&pathname==='/api/ping'){
         const paired=!!auth(req);
-        return respond(res,200,{ok:true,paired,...(paired?{name:hostname,screen:enabled&&process.platform==='win32'}:{})});
+        return respond(res,200,{ok:true,paired,requirePin,...(paired?{name:hostname,screen:enabled&&process.platform==='win32'}:{})});
       }
       if(req.method==='POST'&&pathname==='/api/pair'){
         if(!requiresHeader(req))return respond(res,403,{error:'Request header missing'});
@@ -185,11 +201,11 @@ function createApp(options={}) {
         // Fixed time compare even for incorrect length.
         const got=Buffer.from(String(b.pin||''));const good=Buffer.from(pin);
         const valid=got.length===good.length&&crypto.timingSafeEqual(got,good);
-        if(!valid){attempt.count++;if(attempt.count>=5){attempt.until=Date.now()+15*60*1000;attempt.count=0;}strikes.set(ip,attempt);return respond(res,401,{error:'Incorrect PIN'});}
+        if(requirePin && !valid){attempt.count++;if(attempt.count>=5){attempt.until=Date.now()+15*60*1000;attempt.count=0;}strikes.set(ip,attempt);return respond(res,401,{error:'Incorrect PIN'});}
         strikes.delete(ip);
         const token=crypto.randomBytes(32).toString('hex');
         sessions.set(token,{ip,until:Date.now()+SESSION_TIME});record(ip,'Phone paired');
-        return respond(res,200,{ok:true}, {'Set-Cookie':`${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=7200`});
+        return respond(res,200,{ok:true}, {'Set-Cookie':`${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=7200${viaTunnel?'; Secure':''}`});
       }
       const token=auth(req);
       if(!token)return respond(res,401,{error:'Pair your phone first'});
@@ -219,14 +235,14 @@ function createApp(options={}) {
       if(req.method==='POST'&&pathname==='/api/input'){
         if(!enabled||!requiresHeader(req))return respond(res,403,{error:'Remote input disabled'});
         if(!agent||!agentReady||!Array.from(viewers).some(v=>v.token===token))return respond(res,409,{error:'No active screen session'});
-        const b=await jsonBody(req,16384);
+        const b=await jsonBody(req,100000);
         if(!Array.isArray(b.cmds))return respond(res,400,{error:'Invalid commands'});
         if(b.cmds.length>50||!b.cmds.every(validInput))return respond(res,400,{error:'Invalid input'});
         if(!agent.stdin.writable)return respond(res,503,{error:'Desktop agent disconnected'});
         if(b.wait===true){
           // Typed text and key actions are acknowledged only after the Windows
           // agent processes them. Unacknowledged mouse movement stays fast.
-          if(b.cmds.length<1||b.cmds.length>25||!b.cmds.every(c=>/^(text|key) /.test(c)))
+          if(b.cmds.length<1||b.cmds.length>25||!b.cmds.every(c=>/^(text|paste|key) /.test(c)))
             return respond(res,400,{error:'Invalid typing request'});
           const tagged=[];
           const completion=b.cmds.map(c=>new Promise((resolve,reject)=>{
@@ -263,11 +279,11 @@ if(require.main===module){
   if(process.argv.includes('--port')){console.log(Number(process.env.PORT||7666));process.exit(0);}
   let config={};
   try {config=JSON.parse(fs.readFileSync(path.join(ROOT,'config.json'),'utf8'));} catch {}
-  const app=createApp({screen:config.screen!==false,delaySeconds:config.delaySeconds});
-  app.server.listen(app.port,'0.0.0.0',()=>{
+  const app=createApp({screen:config.screen!==false,delaySeconds:config.delaySeconds,requirePin:config.requirePin===true,tunnelHostname:config.tunnelHostname});
+  app.server.listen(app.port,config.tunnelHostname?'127.0.0.1':'0.0.0.0',()=>{
     const actual=app.server.address().port;
     const ip=app.addresses.find(a=>a.startsWith('192.168.'))||app.addresses[0]||'127.0.0.1';
-    console.log(`\nPC Remote — visible, private LAN session\nPhone URL: http://${ip}:${actual}\nPAIRING PIN: ${app.pin}\nKeep this terminal open; Ctrl+C stops sharing.\nNever forward port ${actual} to the internet.\n`);
+    console.log(`\nPC Remote — visible, private LAN session\nPhone URL: ${config.tunnelHostname?'https://'+tunnelHost(config.tunnelHostname):'http://'+ip+':'+actual}\n${config.requirePin===true?'PAIRING PIN: '+app.pin:'Automatic connection enabled. Use only trusted LAN devices or an Access-protected tunnel.'}\nKeep this terminal open; Ctrl+C stops sharing.\nNever forward port ${actual} to the internet.\n`);
   });
   app.server.on('error',e=>{console.error(e.code==='EADDRINUSE'?'Port is in use. Close the previous PC Remote terminal before starting a new instance.':e.message);process.exitCode=1;});
 }

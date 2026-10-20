@@ -47,7 +47,9 @@ internal static class Program
             var jpeg = ImageCodecInfo.GetImageEncoders().First(e => e.MimeType == "image/jpeg");
             using var encoder = new EncoderParameters(1);
             encoder.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, quality);
-            _ = Task.Run(() => ProcessInput(stdout));
+            var inputThread = new Thread(() => ProcessInput(stdout)) { IsBackground = true };
+            inputThread.SetApartmentState(ApartmentState.STA);
+            inputThread.Start();
             using var memory = new MemoryStream();
             while (running)
             {
@@ -189,6 +191,16 @@ internal static class Program
                 foreach (int key in keys) PressKey(key, "keydown");
                 foreach (int key in keys.Reverse()) PressKey(key, "keyup");
                 break;
+            case "paste":
+                if (words.Length != 1) throw new ArgumentException("Missing paste text");
+                var pasteBytes = Convert.FromBase64String(words[0]);
+                if (pasteBytes.Length > 65536) throw new ArgumentException("Paste is too large");
+                var pasteText = new UTF8Encoding(false, true).GetString(pasteBytes);
+                // Clipboard APIs require the dedicated STA input thread. A single
+                // paste preserves Unicode, line breaks and character order.
+                Clipboard.SetText(pasteText.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", "\r\n"));
+                SendPaste();
+                break;
             case "text":
                 if (words.Length != 1) return;
                 var bytes = Convert.FromBase64String(words[0]);
@@ -221,6 +233,22 @@ internal static class Program
         if (kind != "keyup") Native.keybd_event((byte)value, 0, 0, UIntPtr.Zero);
         if (kind != "keydown") Native.keybd_event((byte)value, 0, 2, UIntPtr.Zero);
     }
+    private static void SendPaste()
+    {
+        var inputs = new[] {
+            new Native.INPUT { type = 1, U = new Native.INPUTUNION { ki = new Native.KEYBDINPUT { wVk = 17 } } },
+            new Native.INPUT { type = 1, U = new Native.INPUTUNION { ki = new Native.KEYBDINPUT { wVk = 86 } } },
+            new Native.INPUT { type = 1, U = new Native.INPUTUNION { ki = new Native.KEYBDINPUT { wVk = 86, dwFlags = 2 } } },
+            new Native.INPUT { type = 1, U = new Native.INPUTUNION { ki = new Native.KEYBDINPUT { wVk = 17, dwFlags = 2 } } }
+        };
+        if (Native.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Native.INPUT>()) != inputs.Length)
+        {
+            PressKey(86, "keyup"); PressKey(17, "keyup");
+            throw new InvalidOperationException("Windows refused paste. Select an editable field on the unlocked desktop.");
+        }
+        // Do not restore the old clipboard: the target handles paste asynchronously.
+    }
+
     private static void SendUnicode(char value)
     {
         var down = new Native.INPUT { type = 1, U = new Native.INPUTUNION { ki = new Native.KEYBDINPUT { wScan = value, dwFlags = 0x0004 } } };

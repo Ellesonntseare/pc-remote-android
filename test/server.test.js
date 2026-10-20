@@ -94,7 +94,7 @@ test('Windows agent acknowledgement reaches phone request, rejects typing errors
       let newline;
       while((newline=buffer.indexOf('\n'))>=0){
         const line=buffer.slice(0,newline);buffer=buffer.slice(newline+1);
-        const match=/^ack ([a-f0-9]{16}) (text|key) (.+)$/.exec(line);
+        const match=/^ack ([a-f0-9]{16}) (text|paste|key) (.+)$/.exec(line);
         if(match){
           const ok=match[2]==='key' || Buffer.from(match[3],'base64').toString('utf8')!=='REJECT';
           setImmediate(()=>agent.stdout.write(makePacket(2,{id:match[1],ok,error:ok?undefined:'Desktop rejected typing'})));
@@ -117,7 +117,7 @@ test('Windows agent acknowledgement reaches phone request, rejects typing errors
       const req=http.request({hostname:'127.0.0.1',port,path:'/api/screen',headers:{'X-PCR':'1',Cookie:cookie}},res=>{res.once('data',()=>resolve({req,res}));});
       req.on('error',reject);req.end();
     });
-    const valid='text '+Buffer.from('Hello é 😀','utf8').toString('base64');
+    const valid='paste '+Buffer.from('Hello é 😀','utf8').toString('base64');
     let response=await request(port,'/api/input','POST',{cmds:[valid,'key 13'],wait:true},{Cookie:cookie});
     assert.equal(response.status,200);
     assert.equal(response.data.delivered,true);
@@ -130,4 +130,47 @@ test('Windows agent acknowledgement reaches phone request, rejects typing errors
     if(screen){screen.res.destroy();screen.req.destroy();}
     app.stop();await close(app);
   }
+});
+
+
+test('trusted LAN connects without PIN by default and retains request protections',async()=>{
+  const app=createApp({port:0,disableAgent:true,disableActions:true});
+  await new Promise(r=>app.server.listen(0,'127.0.0.1',r));
+  const port=app.server.address().port;
+  try {
+    const ping=await request(port,'/api/ping');assert.equal(ping.data.requirePin,false);
+    let r=await request(port,'/api/pair','POST',{});assert.equal(r.status,200);
+    const cookie=r.headers['set-cookie'][0].split(';')[0];
+    r=await request(port,'/api/status','GET',undefined,{Cookie:cookie});assert.equal(r.status,200);
+    r=await request(port,'/api/pair','POST',{}, {'X-PCR':'bad'});assert.equal(r.status,403);
+    r=await request(port,'/api/pair','POST',{}, {Origin:'https://evil.example'});assert.equal(r.status,403);
+    r=await request(port,'/api/unpair','POST',{}, {Cookie:cookie});assert.equal(r.status,200);
+    r=await request(port,'/api/status','GET',undefined,{Cookie:cookie});assert.equal(r.status,401);
+  } finally {await close(app);}
+});
+
+test('paste validates bounded Unicode and multiline payloads',()=>{
+  const command=text=>'paste '+Buffer.from(text).toString('base64');
+  assert.equal(validInput(command('hello\nمرحبا 😀')),true);
+  assert.equal(validInput(command('a'.repeat(65536))),true);
+  assert.equal(validInput(command('a'.repeat(65537))),false);
+  assert.equal(validInput('paste /w=='),false);
+  assert.equal(validInput('paste '),false);
+});
+
+
+test('tunnel mode restricts hostname, keeps origin checks and uses secure sessions',async()=>{
+  assert.throws(()=>createApp({tunnelHostname:'https://remote.example.com'}),/exact DNS/);
+  const app=createApp({port:0,tunnelHostname:'remote.example.com',disableAgent:true,disableActions:true});
+  await new Promise(r=>app.server.listen(0,'127.0.0.1',r));
+  const port=app.server.address().port, headers={Host:'remote.example.com',Origin:'https://remote.example.com'};
+  try{
+    let r=await request(port,'/api/pair','POST',{},headers);assert.equal(r.status,200);
+    assert.match(r.headers['set-cookie'][0],/; Secure/);
+    const cookie=r.headers['set-cookie'][0].split(';')[0];
+    r=await request(port,'/api/status','GET',undefined,{...headers,Cookie:cookie});assert.equal(r.status,200);
+    r=await request(port,'/api/pair','POST',{}, {...headers,Origin:'https://evil.example'});assert.equal(r.status,403);
+    r=await request(port,'/api/ping');assert.equal(r.status,403);
+    r=await request(port,'/api/ping','GET',undefined,{Host:'evil.example','CF-Connecting-IP':'127.0.0.1','X-Forwarded-Host':'remote.example.com'});assert.equal(r.status,403);
+  }finally{await close(app);}
 });
