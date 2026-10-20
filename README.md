@@ -68,7 +68,7 @@ The Android client uses a normal WebView and loads HTML from your Windows host. 
 
 ## Developer instructions
 
-- Run `npm test` in the project root to test automatic connections, optional PIN pairing, authorization, and server-side input validation (doesn't require Windows).
+- Run `npm ci` once, then `npm test` in the project root to test automatic connections, optional PIN pairing, authorization, and server-side input validation (doesn't require Windows).
 - Open the repository in Android Studio to build the APK locally, or install JDK 17 + Android SDK 35 + Gradle 8.10.2 and run `gradle :android:assembleDebug`.
 - Android app uses JavaScript + DOM storage, HTTP access strictly to a manually entered private IPv4 host/port, and no extra Android device privileges (no accessibility, microphone, or remote app installation).
 - `.NET 8` agent sources are in `RemoteAgent/`. The original issue (`CS0266` at `Program.cs:188`) is fixed in this version.
@@ -116,3 +116,21 @@ On a PC browser, select **Remote screen**, click the remote PC picture, and type
 Use **Reconnect** to reopen a stalled stream. The status distinguishes Connecting, Waiting for screen, Live and Disconnected, and detects a stream with no decoded frames. Reconnect preserves the phone draft, pauses uncertain typing and releases remote mouse buttons; check the PC field and tap New field before resuming.
 
 Use **Full screen** for a clean view containing only the remote PC image on phones and PCs. Toolbars, keyboard panels, shortcuts and other app widgets are hidden. Press **Escape** on a PC or **tap with three fingers** on a phone to restore the controls. Phones may also exit with their system Back gesture. On browsers without native fullscreen support, **Expand view** hides the app controls while browser bars remain. Zoom buttons enlarge the picture from 100% to 400%; the percentage resets it. At higher zoom, **Pan view** moves the local picture without clicking or scrolling the PC. Switch back to **Control PC** to operate the zoomed screen. Mouse/touch positions map to the displayed part of the PC image.
+
+
+## Responsive phone input
+
+Mouse and keyboard input use an authenticated WebSocket connection when available. Mouse updates are coalesced at the next animation frame and streamed without waiting for a separate HTTP reply to every movement. The existing HTTP input route is a fallback when the streaming connection is unavailable. Cloudflare Tunnel supports the WebSocket upgrade on the same HTTPS hostname; no additional port is needed. Closing a connection with an unconfirmed keyboard command pauses live typing instead of replaying input.
+
+The Windows launcher installs the pinned Node dependencies before starting the host. After updating the source, close the old host and run `start-cloudflare.bat` for the domain or `start.bat` for LAN use. Internet access is required for that dependency installation.
+
+Input transport does not eliminate mobile network or video delay. Start with Med quality on a phone; HD remains available when bandwidth and the host PC can sustain it.
+
+
+### High-resolution pacing
+
+Each browser has its own video-feedback channel. The server allows at most two unacknowledged frames per viewer, and the Windows agent waits for frame demand when all connected viewers support feedback. Frames that cannot be displayed are skipped, rather than accumulating behind the latest image. The browser assembles fragmented JPEG packets without repeatedly copying the growing partial frame, and drops outdated work after a reconnect.
+
+When frame delivery and decoding are slow, the host automatically adjusts JPEG compression while retaining the selected pixel resolution. Compression recovers gradually when delivery improves. This happens inside the running capture agent, so it does not restart the screen or interrupt the input session. Legacy/blocked WebSocket connections retain the HTTP and stream backpressure fallback. Live input remains on its separate persistent connection when available.
+
+Validation includes real browser gestures, a simulated 200 ms HTTP reply delay, and a 3840×2160 stream with a deliberate 350 ms decode delay. These are controlled cloud tests; actual frame rate and clarity still depend on the Windows host, screen content, phone decoder, and internet link.

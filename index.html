@@ -13,6 +13,8 @@
 <meta name="apple-mobile-web-app-title" content="PC Remote">
 <link rel="stylesheet" href="/pwa.css">
 <script src="/pwa.js" defer></script>
+<script src="/screen-packets.js" defer></script>
+<script src="/input-transport.js" defer></script>
 <link rel="stylesheet" href="/screen-tools.css">
 <script src="/screen-tools.js" defer></script>
 <link rel="stylesheet" href="/desktop-controls.css">
@@ -241,16 +243,48 @@ function qc(c){
   if(l&&l.startsWith(a+' ')&&(a==='mv'||a==='wheel'||a==='abs')){const[,lx,ly]=l.split(' ');qq[qq.length-1]=a==='abs'?c:a==='wheel'?'wheel '+(+lx + +x):'mv '+(+lx + +x)+' '+(+ly + +y)}else qq.push(c);
   flush();
 }
+let pointerFrame=0,lastPointerSend=0;
+function schedulePointer(){if(!pointerFrame)pointerFrame=requestAnimationFrame(flushPointer);}
+function flushPointer(now){
+  pointerFrame=0;
+  if(qb||typeBusy||!qq.length||!rs.on)return;
+  if(now-lastPointerSend<32){schedulePointer();return;}
+  const transport=window.PCRInputTransport;
+  if(!transport?.isOpen){flush();return;}
+  const commands=qq.slice(0,50),result=transport.sendPointer(commands);
+  if(result==='blocked'){schedulePointer();return;}
+  if(result==='http'){flush();return;}
+  if(result==='failed'){qq=[];rsPauseLive('PC input connection changed. Check the PC field before continuing.');return;}
+  qq.splice(0,commands.length);lastPointerSend=now;
+  if(qq.length)schedulePointer();else rsScheduleLive();
+}
 async function flush(){
   if(qb||typeBusy||!qq.length||!rs.on)return;
+  if(window.PCRInputTransport?.isOpen){schedulePointer();return;}
   qb=1;const c=qq.splice(0,50);
   try{const d=await api('/api/input',{method:'POST',body:JSON.stringify({cmds:c})});if(!d.ok||d.status!==200)throw Error(d.error||'PC input unavailable');}
   catch(e){qq=[];rsPauseLive('PC controls disconnected. Select the PC field again, then tap New field.');msg(e.message||'PC input unavailable');}
   finally{qb=0;flush();rsScheduleLive();}
 }
-function rsFrame(b){rs.pend=b;if(rs.dec)return;rs.dec=1;(async()=>{while(rs.pend){const p=rs.pend;rs.pend=null;try{const im=await createImageBitmap(new Blob([p],{type:'image/jpeg'})),c=$('rsc');if(c.width!==im.width||c.height!==im.height){c.width=im.width;c.height=im.height}c.getContext('2d').drawImage(im,0,0);im.close();window.PCRScreenTools?.frame();$('rsst').textContent=rs.m?rs.m.w+'×'+rs.m.h:'Live'}catch{}}rs.dec=0})()}
+function rsFrame(bytes,id,source){
+  rs.pend={bytes,id,source};if(rs.dec)return;rs.dec=1;
+  (async()=>{
+    try{while(rs.pend){
+      const frame=rs.pend;rs.pend=null;
+      if(frame.source!==rs.ab||!rs.on)continue;
+      let image;
+      try{
+        image=await createImageBitmap(new Blob([frame.bytes],{type:'image/jpeg'}));
+        if(frame.source!==rs.ab||!rs.on)continue;
+        const c=$('rsc');if(c.width!==image.width||c.height!==image.height){c.width=image.width;c.height=image.height;}
+        c.getContext('2d',{alpha:false,desynchronized:true}).drawImage(image,0,0);window.PCRScreenTools?.frame();$('rsst').textContent=rs.m?rs.m.w+'×'+rs.m.h:'Live';
+      }catch{}finally{image?.close();if(frame.source===rs.ab)window.PCRInputTransport?.ackFrame(frame.id);}
+    }}finally{rs.dec=0;}
+  })();
+}
 async function rsRun(){
   if(!rs.on)return;
+  window.PCRInputTransport?.stop();
   if(rs.ab)rs.ab.abort();
   rs.m=null;window.PCRScreenTools?.connecting();
   const ab=rs.ab=new AbortController();
@@ -258,29 +292,26 @@ async function rsRun(){
     const r=await fetch('/api/screen?p='+QN[rs.qi],{headers:{'X-PCR':'1'},signal:ab.signal});
     if(rs.ab!==ab||!rs.on){await r.body?.cancel();return;}
     if(!r.ok){const d=await r.json().catch(()=>({}));msg(d.error||'Screen unavailable');$('rsst').textContent=d.error||'Screen unavailable';rsPauseLive('Screen unavailable. Reopen the screen, select a PC field, then tap New field.');return rsClose();}
-    const rd=r.body.getReader();let b=new Uint8Array(0);
+    const rd=r.body.getReader(),packets=new window.PCRPacketReader();let frameId=null;
     for(;;){
       const{done,value}=await rd.read();if(done||rs.ab!==ab||!rs.on)break;
-      const n=new Uint8Array(b.length+value.length);n.set(b);n.set(value,b.length);b=n;
-      while(b.length>=5){
-        const L=((b[1]<<24)|(b[2]<<16)|(b[3]<<8)|b[4])>>>0;
-        if(L>8*1024*1024)throw Error('Invalid screen packet');
-        if(b.length<5+L)break;
-        const t=b[0],p=b.slice(5,5+L);b=b.subarray(5+L);
-        if(t===1){rs.m=JSON.parse(new TextDecoder().decode(p));window.PCRScreenTools?.metadata();rsScheduleLive();}else if(t===0)rsFrame(p);
-      }
+      packets.feed(value,(t,p)=>{
+        if(t===1){rs.m=JSON.parse(new TextDecoder().decode(p));window.PCRScreenTools?.metadata();window.PCRInputTransport?.start();rsScheduleLive();}
+        else if(t===3)frameId=JSON.parse(new TextDecoder().decode(p)).id;
+        else if(t===0){rsFrame(p,frameId,ab);frameId=null;}
+      });
     }
   }catch(e){if(e.name==='AbortError'||rs.ab!==ab)return;}
   if(rs.on&&rs.ab===ab){
-    rs.m=null;window.PCRScreenTools?.disconnected();rsPauseLive('Screen connection changed. Select the PC field again, then tap New field.');
+    rs.m=null;window.PCRInputTransport?.stop();window.PCRScreenTools?.disconnected();rsPauseLive('Screen connection changed. Select the PC field again, then tap New field.');
     $('rsst').textContent='Reconnecting…';setTimeout(()=>{if(rs.on&&rs.ab===ab)rsRun()},1500);
   }
 }
 function rsOpen(){rs.on=1;rs.m=null;$('rs').classList.remove('hide');document.body.style.overflow='hidden';$('rsq').textContent=QL[rs.qi];$('rsm').textContent=rs.mode==='pad'?'Trackpad':'Touch';$('rsst').textContent='Connecting…';rsRun()}
-function rsClose(){rs.on=0;rs.m=null;window.PCRScreenTools?.closed();if(rs.ab)rs.ab.abort();if(live.sent||$('typeText').value||typeBusy)rsPauseLive('Screen closed. Select the PC field again, then tap New field.');rsPrefsClose();rsTypeClose();$('rs').classList.add('hide');document.body.style.overflow='';qq=[]}
+function rsClose(){window.PCRInputTransport?.stop();if(pointerFrame)cancelAnimationFrame(pointerFrame);pointerFrame=0;rs.on=0;rs.m=null;window.PCRScreenTools?.closed();if(rs.ab)rs.ab.abort();if(live.sent||$('typeText').value||typeBusy)rsPauseLive('Screen closed. Select the PC field again, then tap New field.');rsPrefsClose();rsTypeClose();$('rs').classList.add('hide');document.body.style.overflow='';qq=[]}
 function rsMode(){rs.mode=rs.mode==='pad'?'touch':'pad';ls('pcr_mode',rs.mode);$('rsm').textContent=rs.mode==='pad'?'Trackpad':'Touch'}
 function rsQ(){if(typeBusy){msg('Wait for typing to finish before changing quality.');return;}rs.qi=(rs.qi+1)%QN.length;ls('pcr_q',rs.qi);$('rsq').textContent=QL[rs.qi];rsPauseLive('Quality changed. Select the PC field again, then tap New field.');rsRun()}
-document.addEventListener('visibilitychange',()=>{if(!rs.on)return;if(document.hidden){rs.m=null;window.PCRScreenTools?.disconnected('Screen paused');rsPauseLive('Screen paused. Select the PC field again, then tap New field.');rs.ab?.abort();}else rsRun()});
+document.addEventListener('visibilitychange',()=>{if(!rs.on)return;if(document.hidden){window.PCRInputTransport?.stop();rs.m=null;window.PCRScreenTools?.disconnected('Screen paused');rsPauseLive('Screen paused. Select the PC field again, then tap New field.');rs.ab?.abort();}else rsRun()});
 function box(){if(window.PCRScreenTools)return window.PCRScreenTools.imageBox();const c=$('rsc'),e=c.getBoundingClientRect(),a=c.width/c.height||1;let w=e.width,h=e.height,x=e.left,y=e.top;if(w/h>a){const nw=h*a;x+=(w-nw)/2;w=nw}else{const nh=w/a;y+=(h-nh)/2;h=nh}return{x,y,w,h}}
 function pos(t){const b=box(),m=rs.m;if(!m)return;const f=(v,o,s,M)=>Math.round(Math.min(Math.max((v-o)/s,0),1)*(M-1));qc('abs '+f(t.clientX,b.x,b.w,m.w)+' '+f(t.clientY,b.y,b.h,m.h))}
 const V=$('rsv');
@@ -378,7 +409,8 @@ function rsScheduleLive(){
 async function typingRequest(commands){
   const abort=new AbortController();const timeout=setTimeout(()=>abort.abort(),18000);
   try{
-    const d=await api('/api/input',{method:'POST',body:JSON.stringify({cmds:commands,wait:true}),signal:abort.signal});
+    const transport=typeof window==='undefined'?null:window.PCRInputTransport;
+    const d=transport?await transport.sendInput(commands,{wait:true,signal:abort.signal}):await api('/api/input',{method:'POST',body:JSON.stringify({cmds:commands,wait:true}),signal:abort.signal});
     if(!d.ok||d.status!==200||d.delivered!==true)throw Error(d.error||'PC did not confirm the input');
   }finally{clearTimeout(timeout);}
 }
@@ -418,6 +450,9 @@ function rsKb(){
 }
 function rsTypeClose(){
   $('rs').classList.remove('typing');$('typeText').blur();$('typePanel').classList.add('hide');
+  // Some phone IMEs omit compositionend on blur; commit the visible snapshot
+  // rather than leaving all pointer controls blocked by hidden composition.
+  if(composing){composing=false;if(rs.on)rsScheduleLive();}
 }
 function encodeTextCommands(value){
   const chunks=[];let acc='';let byteLength=0;

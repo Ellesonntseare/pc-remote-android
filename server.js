@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, execFile } = require('node:child_process');
+const { WebSocketServer, WebSocket } = require('ws');
 const ROOT = __dirname;
 const PRESETS = { low: [35, 0.40, 6], med: [50, 0.60, 10], high: [70, 0.85, 12], hd: [85, 1.0, 15] };
 const commands = new Set(['shutdown','restart','logoff','sleep','lock','volup','voldown','mute','playpause','next','prev','cancel']);
@@ -14,6 +15,8 @@ const SESSION_TIME = 2 * 60 * 60 * 1000;
 const MAX_PACKET = 8 * 1024 * 1024;
 // Explicit public asset map: no arbitrary filesystem paths or paired data.
 const PWA_ASSETS = new Map([
+  ['/screen-packets.js', ['screen-packets.js', 'text/javascript; charset=utf-8']],
+  ['/input-transport.js', ['input-transport.js', 'text/javascript; charset=utf-8']],
   ['/pwa.js', ['pwa.js', 'text/javascript; charset=utf-8']],
   ['/pwa.css', ['pwa.css', 'text/css; charset=utf-8']],
   ['/screen-tools.js', ['screen-tools.js', 'text/javascript; charset=utf-8']],
@@ -110,6 +113,9 @@ function createApp(options={}) {
   const hostnames = new Set(['localhost','127.0.0.1',hostname.toLowerCase(),...interfaces]);
   const sessions = new Map(), strikes = new Map(), activity=[];
   const viewers = new Set();
+  let videoSequence=0,captureDemand=false,captureRequested=false,baseQuality=50,currentQuality=50,lastQualityChange=0;
+  const inputSockets = new Set();
+  const inputHeld = new WeakMap();
   const pendingInput = new Map();
   function failPending(message) {
     for(const item of pendingInput.values()){clearTimeout(item.timer);item.reject(new Error(message));}
@@ -127,7 +133,46 @@ function createApp(options={}) {
     return token;
   };
   const requiresHeader=(req)=>req.headers['x-pcr']==='1';
+  const isTunnelRequest=req=>!!tunnelHostname&&loopbackIP(req.socket.remoteAddress)&&sameHost(req.headers.host,new Set([tunnelHostname]));
+  const allowedRequest=req=>tunnelHostname?isTunnelRequest(req):privateIP(req.socket.remoteAddress)&&sameHost(req.headers.host,hostnames);
+  function videoPacket(type,value){
+    const payload=Buffer.from(JSON.stringify(value)),header=Buffer.alloc(5);
+    header[0]=type;header.writeUInt32BE(payload.length,1);return Buffer.concat([header,payload]);
+  }
+  function viewerMetadata(viewer){return videoPacket(1,{...JSON.parse(agentMeta.subarray(5).toString('utf8')),streamId:viewer.streamId});}
+  function requestVideoFrame(){
+    if(!captureDemand||captureRequested||!agent?.stdin.writable)return;
+    if(!Array.from(viewers).some(v=>v.res.writable&&!v.busy&&v.inFlight.size<2))return;
+    captureRequested=true;agent.stdin.write('frame\n');
+  }
+  function updateVideoDemand(){
+    const next=viewers.size>0&&Array.from(viewers).every(v=>v.feedbackSocket?.readyState===WebSocket.OPEN);
+    if(next!==captureDemand){captureDemand=next;captureRequested=false;if(agent?.stdin.writable)agent.stdin.write('flow '+(next?1:0)+'\n');}
+    requestVideoFrame();
+  }
+  function acknowledgeVideo(viewer,id){
+    if(!Number.isSafeInteger(id)||!viewer.inFlight.has(id))return;
+    const elapsed=Math.max(1,Date.now()-viewer.inFlight.get(id));
+    for(const old of viewer.inFlight.keys())if(old<=id)viewer.inFlight.delete(old);
+    viewer.deliveryMs=viewer.deliveryMs?viewer.deliveryMs*.75+elapsed*.25:elapsed;
+    const delivery=Math.max(...Array.from(viewers,v=>v.feedbackSocket?v.deliveryMs||0:0)),now=Date.now();
+    let next=currentQuality;
+    if(delivery>240&&now-lastQualityChange>1500)next=Math.max(Math.min(baseQuality,40),currentQuality-10);
+    else if(delivery>0&&delivery<110&&now-lastQualityChange>5000)next=Math.min(baseQuality,currentQuality+5);
+    if(next!==currentQuality&&agent?.stdin.writable){currentQuality=next;lastQualityChange=now;agent.stdin.write('quality '+next+'\n');}
+    requestVideoFrame();
+  }
+  function disconnectInput(ws,code=1008,message='Session ended') {
+    if(ws.readyState>=WebSocket.CLOSING)return;
+    ws.close(code,message);
+    const timer=setTimeout(()=>ws.terminate(),250);timer.unref();
+    ws.once('close',()=>clearTimeout(timer));
+  }
+  function closeInputSockets(token) {
+    for(const entry of inputSockets)if(!token||entry.token===token)disconnectInput(entry.ws,1001,'Screen session ended');
+  }
   function endAgent() {
+    captureDemand=false;captureRequested=false;
     failPending('Desktop agent disconnected');
     const p=agent;agent=null;agentPreset=null;agentMeta=null;agentBuffer=Buffer.alloc(0);agentReady=false;
     if(p) {
@@ -140,6 +185,7 @@ function createApp(options={}) {
     }
   }
   function endViewers() {
+    closeInputSockets();
     for(const v of viewers) {try {v.res.end();} catch{}}
     viewers.clear();endAgent();
   }
@@ -151,6 +197,7 @@ function createApp(options={}) {
     const dll=path.join(ROOT,'RemoteAgent','bin','RemoteAgent.dll');
     if(!options.agentFactory && !fs.existsSync(exe) && !fs.existsSync(dll))return false;
     const [quality,scale,fps]=PRESETS[preset];
+    baseQuality=currentQuality=quality;lastQualityChange=Date.now();
     let bin,args;
     if(fs.existsSync(exe)) {bin=exe;args=[String(fps),String(quality),String(scale)];}
     else {bin='dotnet';args=[dll,String(fps),String(quality),String(scale)];}
@@ -180,8 +227,16 @@ function createApp(options={}) {
             }
           } catch(e){console.error('Invalid desktop input acknowledgement:',e.message);}
           continue;
-        } else if(pkt[0]!==0)continue;
-        for(const v of viewers) if(v.res.writable&&!v.busy){v.busy=!v.res.write(pkt);}
+        } else if(pkt[0]===4){captureRequested=false;requestVideoFrame();continue;}else if(pkt[0]!==0)continue;
+        if(pkt[0]===1){for(const v of viewers)if(v.res.writable)v.res.write(viewerMetadata(v));continue;}
+        captureRequested=false;
+        const id=++videoSequence,marker=videoPacket(3,{id});
+        for(const v of viewers)if(v.res.writable&&!v.busy){
+          if(v.feedbackSocket&&v.inFlight.size>=2)continue;
+          if(v.feedbackSocket)v.inFlight.set(id,Date.now());
+          v.busy=!v.res.write(v.feedbackSocket?Buffer.concat([marker,pkt]):pkt);
+        }
+        requestVideoFrame();
       }
     });
     p.on('close',code=>{
@@ -191,6 +246,56 @@ function createApp(options={}) {
       viewers.clear();endAgent();
     });
     return true;
+  }
+  function trackInput(owner,cmds) {
+    if(!owner)return;
+    let held=inputHeld.get(owner);
+    if(!held||held.agent!==agent){held={agent,buttons:new Set(),keys:new Set()};inputHeld.set(owner,held);}
+    for(const command of cmds){
+      const [kind,value]=command.split(' ');
+      if(kind==='down')held.buttons.add(value);
+      else if(kind==='up'||kind==='click')held.buttons.delete(value);
+      else if(kind==='dbl')held.buttons.delete('l');
+      else if(kind==='keydown')held.keys.add(value);
+      else if(kind==='keyup'||kind==='key')held.keys.delete(value);
+    }
+  }
+  function releaseInput(owner) {
+    const held=inputHeld.get(owner);inputHeld.delete(owner);
+    if(!held||held.agent!==agent||!agent?.stdin.writable)return;
+    const commands=[...Array.from(held.buttons,button=>'up '+button),...Array.from(held.keys,key=>'keyup '+key)];
+    if(commands.length)try{agent.stdin.write(commands.join('\n')+'\n');}catch{}
+  }
+  async function processInput(token,b,owner=null) {
+    const result=(status,payload)=>({status,...payload});
+    if(!enabled)return result(403,{error:'Remote input disabled'});
+    if(!agent||!agentReady||!Array.from(viewers).some(v=>v.token===token))return result(409,{error:'No active screen session'});
+    if(!b||typeof b!=='object'||Array.isArray(b)||!Array.isArray(b.cmds))return result(400,{error:'Invalid commands'});
+    if(b.wait!==undefined&&typeof b.wait!=='boolean')return result(400,{error:'Invalid acknowledgement setting'});
+    if(b.cmds.length>50||!b.cmds.every(validInput))return result(400,{error:'Invalid input'});
+    if(!agent.stdin.writable)return result(503,{error:'Desktop agent disconnected'});
+    if(agent.stdin.writableLength>262144||pendingInput.size>512)return result(429,{error:'PC input queue is busy'});
+    if(b.wait===true){
+      if(b.cmds.length<1||b.cmds.length>25||!b.cmds.every(c=>/^(text|paste|edit|key|combo) /.test(c)))
+        return result(400,{error:'Invalid typing request'});
+      const tagged=[],ids=[];
+      const completion=b.cmds.map(c=>new Promise((resolve,reject)=>{
+        const id=crypto.randomBytes(8).toString('hex');ids.push(id);
+        const timer=setTimeout(()=>{pendingInput.delete(id);reject(new Error('Windows input acknowledgement timed out'));},15000);
+        timer.unref();pendingInput.set(id,{resolve,reject,timer,owner});tagged.push(`ack ${id} ${c}`);
+      }));
+      try{
+        agent.stdin.write(tagged.join('\n')+'\n');
+        await Promise.all(completion);
+        return result(200,{ok:true,delivered:true});
+      }catch(e){return result(503,{error:e.message});}
+      finally{
+        for(const id of ids){const pending=pendingInput.get(id);if(pending){clearTimeout(pending.timer);pendingInput.delete(id);}}
+      }
+    }
+    try{if(b.cmds.length){agent.stdin.write(b.cmds.join('\n')+'\n');trackInput(owner,b.cmds);}}
+    catch(e){return result(503,{error:e.message});}
+    return result(200,{ok:true});
   }
   function act(action, callback) {
     if (options.disableActions) return callback(new Error('Disabled in tests'));
@@ -215,8 +320,8 @@ function createApp(options={}) {
     const ip=req.socket.remoteAddress;
     // Tunnel mode accepts only the local connector and explicitly named host.
     // Never use X-Forwarded-For / CF-Connecting-IP as proof of authorization.
-    const viaTunnel = !!tunnelHostname && loopbackIP(ip) && sameHost(req.headers.host,new Set([tunnelHostname]));
-    const allowed = tunnelHostname ? viaTunnel : privateIP(ip) && sameHost(req.headers.host,hostnames);
+    const viaTunnel = isTunnelRequest(req);
+    const allowed = allowedRequest(req);
     if(!allowed)return respond(res,403,{error:tunnelHostname?'Tunnel host only':'Local network only. For remote.teamtrader.co.za, run start-cloudflare.bat on the Windows host and restart Cloudflare Tunnel.'});
     if(req.headers.origin){try{const origin=new URL(req.headers.origin);if(origin.host!==req.headers.host)return respond(res,403,{error:'Cross-origin request rejected'});}catch{return respond(res,403,{error:'Invalid origin'});}}
     let pathname;
@@ -224,7 +329,7 @@ function createApp(options={}) {
     try{
       if(req.method==='GET'&&(pathname==='/'||pathname==='/index.html')){
         const page=fs.readFileSync(path.join(ROOT,'index.html'));
-        res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'",'X-Content-Type-Options':'nosniff'});
+        res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':`default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self' ws://${req.headers.host} wss://${req.headers.host}; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'`,'X-Content-Type-Options':'nosniff'});
         return res.end(page);
       }
       if(req.method==='GET'&&(pathname==='/manifest.json'||pathname==='/manifest.webmanifest'))return respond(res,200,{
@@ -267,7 +372,7 @@ function createApp(options={}) {
       if(req.method==='GET'&&pathname==='/api/status')return respond(res,200,{ok:true,name:hostname,uptime:Math.round(os.uptime()),cpu,mem:Math.round(100*(1-os.freemem()/os.totalmem())),log:activity.slice(0,6),screen:enabled&&process.platform==='win32'});
       if(req.method==='POST'&&pathname==='/api/unpair'){
         if(!requiresHeader(req))return respond(res,403,{error:'Request header missing'});
-        sessions.delete(token);for(const v of [...viewers])if(v.token===token){try{v.res.end();}catch{} viewers.delete(v);}if(!viewers.size)endAgent();
+        sessions.delete(token);closeInputSockets(token);for(const v of [...viewers])if(v.token===token){try{v.res.end();}catch{} viewers.delete(v);}updateVideoDemand();if(!viewers.size)endAgent();
         record(ip,'Phone unpaired');return respond(res,200,{ok:true},{'Set-Cookie':`${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`});
       }
       if(req.method==='GET'&&pathname==='/api/screen'){
@@ -275,53 +380,22 @@ function createApp(options={}) {
         const preset=new URL(req.url,'http://localhost').searchParams.get('p')||'med';
         if(!PRESETS[preset])return respond(res,400,{error:'Invalid quality setting'});
         if(!startAgent(preset))return respond(res,503,{error:'Desktop agent unavailable. Build it on Windows using start.bat.'});
-        res.writeHead(200,{'Content-Type':'application/octet-stream','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
+        res.writeHead(200,{'Content-Type':'application/octet-stream','Cache-Control':'no-store, no-transform','X-Accel-Buffering':'no','X-Content-Type-Options':'nosniff'});
         res.socket.setNoDelay(true);
-        const v={res,token,busy:false};viewers.add(v);res.on('drain',()=>v.busy=false);
-        if(agentMeta)res.write(agentMeta);
+        const v={res,token,busy:false,streamId:crypto.randomBytes(12).toString('hex'),feedbackSocket:null,inFlight:new Map(),deliveryMs:0};viewers.add(v);res.on('drain',()=>{v.busy=false;requestVideoFrame();});
+        updateVideoDemand();if(agentMeta)res.write(viewerMetadata(v));
         // An already-open stream must not outlive the pairing session.
         const expiration=sessions.get(token).until-Date.now();
         const expiry=setTimeout(()=>{if(!res.writableEnded)res.end();},Math.max(0,expiration));
         expiry.unref();
         record(ip,'Remote screen opened');console.log(`[Sharing screen with ${ip}. Close host window to stop.]`);
-        res.on('close',()=>{clearTimeout(expiry);viewers.delete(v);if(!viewers.size)endAgent();});
+        res.on('close',()=>{clearTimeout(expiry);viewers.delete(v);updateVideoDemand();if(!viewers.size)endAgent();});
         return;
       }
       if(req.method==='POST'&&pathname==='/api/input'){
-        if(!enabled||!requiresHeader(req))return respond(res,403,{error:'Remote input disabled'});
-        if(!agent||!agentReady||!Array.from(viewers).some(v=>v.token===token))return respond(res,409,{error:'No active screen session'});
-        const b=await jsonBody(req,100000);
-        if(!Array.isArray(b.cmds))return respond(res,400,{error:'Invalid commands'});
-        if(b.cmds.length>50||!b.cmds.every(validInput))return respond(res,400,{error:'Invalid input'});
-        if(!agent.stdin.writable)return respond(res,503,{error:'Desktop agent disconnected'});
-        if(b.wait===true){
-          // Typed text and key actions are acknowledged only after the Windows
-          // agent processes them. Unacknowledged mouse movement stays fast.
-          if(b.cmds.length<1||b.cmds.length>25||!b.cmds.every(c=>/^(text|paste|edit|key|combo) /.test(c)))
-            return respond(res,400,{error:'Invalid typing request'});
-          const tagged=[], ids=[];
-          const completion=b.cmds.map(c=>new Promise((resolve,reject)=>{
-            const id=crypto.randomBytes(8).toString('hex');ids.push(id);
-            const timer=setTimeout(()=>{pendingInput.delete(id);reject(new Error('Windows input acknowledgement timed out'));},15000);
-            timer.unref();
-            pendingInput.set(id,{resolve,reject,timer});
-            tagged.push(`ack ${id} ${c}`);
-          }));
-          try {
-            agent.stdin.write(tagged.join('\n')+'\n');
-            await Promise.all(completion);
-            return respond(res,200,{ok:true,delivered:true});
-          } catch(e) {
-            return respond(res,503,{error:e.message});
-          } finally {
-            for (const id of ids) {
-              const pending=pendingInput.get(id);
-              if(pending){clearTimeout(pending.timer);pendingInput.delete(id);}
-            }
-          }
-        }
-        if(b.cmds.length)agent.stdin.write(b.cmds.join('\n')+'\n');
-        return respond(res,200,{ok:true});
+        if(!requiresHeader(req))return respond(res,403,{error:'Remote input disabled'});
+        const b=await jsonBody(req,100000),outcome=await processInput(token,b);
+        const {status,...payload}=outcome;return respond(res,status,payload);
       }
       if(req.method==='POST'&&pathname==='/api/cmd'){
         if(!requiresHeader(req))return respond(res,403,{error:'Request header missing'});
@@ -332,7 +406,63 @@ function createApp(options={}) {
       return respond(res,404,{error:'Not found'});
     }catch(err){if(res.headersSent){res.destroy();return;}return respond(res,err.message==='Request too large'?413:400,{error:err.message});}
   });
-  server.on('close',()=>{clearInterval(cpuClock);endViewers();});
+  const inputStream=new WebSocketServer({noServer:true,maxPayload:100000,perMessageDeflate:false});
+  function rejectUpgrade(socket,status,message) {
+    const body=JSON.stringify({error:message});
+    socket.end(`HTTP/1.1 ${status} ${http.STATUS_CODES[status]}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+  }
+  server.on('upgrade',(req,socket,head)=>{
+    let pathname;try{pathname=new URL(req.url,'http://localhost').pathname;}catch{return rejectUpgrade(socket,400,'Bad URL');}
+    if(pathname!=='/api/input-stream')return rejectUpgrade(socket,404,'Not found');
+    if(!allowedRequest(req))return rejectUpgrade(socket,403,'Input stream host rejected');
+    try{
+      const origin=new URL(req.headers.origin);
+      if(!['http:','https:'].includes(origin.protocol)||origin.host!==req.headers.host)return rejectUpgrade(socket,403,'Cross-origin request rejected');
+    }catch{return rejectUpgrade(socket,403,'Request origin required');}
+    const token=auth(req);
+    if(!token)return rejectUpgrade(socket,401,'Pair your phone first');
+    if(!enabled)return rejectUpgrade(socket,403,'Remote input disabled');
+    if(!agent||!agentReady||!Array.from(viewers).some(v=>v.token===token))return rejectUpgrade(socket,409,'No active screen session');
+    const screenId=new URL(req.url,'http://localhost').searchParams.get('screen');
+    const viewer=screenId?Array.from(viewers).find(v=>v.token===token&&v.streamId===screenId):null;
+    if(screenId&&!viewer)return rejectUpgrade(socket,409,'Screen session changed');
+    inputStream.handleUpgrade(req,socket,head,ws=>{
+      const entry={ws,token};inputSockets.add(entry);
+      if(viewer){viewer.feedbackSocket=ws;viewer.inFlight.clear();updateVideoDemand();}
+      const expiry=setTimeout(()=>disconnectInput(ws,1008,'Session expired'),Math.max(0,sessions.get(token).until-Date.now()));expiry.unref();
+      const activeIds=new Set();
+      const send=payload=>{if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(payload));};
+      ws.on('error',()=>{});
+      ws.on('message',(data,binary)=>{
+        if(ws.readyState!==WebSocket.OPEN)return;
+        if(auth(req)!==token){send({status:401,error:'Session expired'});disconnectInput(ws,1008,'Session expired');return;}
+        let body;try{if(binary)throw Error();body=JSON.parse(data.toString('utf8'));}catch{send({status:400,error:'Invalid JSON input'});return;}
+        if(!body||typeof body!=='object'||Array.isArray(body)){send({status:400,error:'Invalid commands'});return;}
+        if(Object.hasOwn(body,'frameAck')){
+          if(viewer?.feedbackSocket===ws)acknowledgeVideo(viewer,body.frameAck);
+          return;
+        }
+        const id=body.id,hasId=id!==undefined;
+        if(hasId&&!((Number.isSafeInteger(id)&&id>=0)||(typeof id==='string'&&/^[A-Za-z0-9_-]{1,64}$/.test(id)))){send({status:400,error:'Invalid request ID'});return;}
+        if(body.wait===true&&!hasId){send({status:400,error:'Acknowledged input requires a request ID'});return;}
+        if(hasId&&activeIds.has(id)){send({id,status:400,error:'Duplicate request ID'});return;}
+        if(activeIds.size>=32){send({...hasId&&{id},status:429,error:'Too many pending input requests'});return;}
+        if(hasId)activeIds.add(id);
+        // processInput validates and writes synchronously before its first await.
+        // Movement packets therefore stream in receive order without a round trip.
+        processInput(token,body,ws).then(outcome=>{
+          if(hasId||outcome.status!==200)send({...hasId&&{id},...outcome});
+        }).catch(()=>send({...hasId&&{id},status:503,error:'Input stream failed'}))
+          .finally(()=>{if(hasId)activeIds.delete(id);});
+      });
+      ws.on('close',()=>{
+        clearTimeout(expiry);inputSockets.delete(entry);releaseInput(ws);
+        if(viewer?.feedbackSocket===ws){viewer.feedbackSocket=null;viewer.inFlight.clear();updateVideoDemand();}
+        for(const [id,pending] of pendingInput)if(pending.owner===ws){clearTimeout(pending.timer);pendingInput.delete(id);pending.reject(new Error('Input stream disconnected'));}
+      });
+    });
+  });
+  server.on('close',()=>{clearInterval(cpuClock);endViewers();inputStream.close();});
   return {server,pin,port,addresses:interfaces,stop:endViewers};
 }
 if(require.main===module){

@@ -18,6 +18,8 @@ internal static class Program
     private static readonly HashSet<char> HeldMouseButtons = new();
     private static readonly HashSet<int> HeldKeys = new();
     private static volatile bool running = true;
+    private static volatile bool demandFrames;
+    private static int frameBudget, jpegQuality;
     private static Rectangle primary;
 
     [STAThread]
@@ -50,12 +52,26 @@ internal static class Program
             var jpeg = ImageCodecInfo.GetImageEncoders().First(e => e.MimeType == "image/jpeg");
             using var encoder = new EncoderParameters(1);
             encoder.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, quality);
+            jpegQuality=(int)quality;
             var inputThread = new Thread(() => ProcessInput(stdout)) { IsBackground = true };
             inputThread.SetApartmentState(ApartmentState.STA);
             inputThread.Start();
             using var memory = new MemoryStream();
             while (running)
             {
+                if(demandFrames)
+                {
+                    int available=Volatile.Read(ref frameBudget);
+                    if(available<=0){Thread.Sleep(8);continue;}
+                    if(Interlocked.CompareExchange(ref frameBudget,available-1,available)!=available)continue;
+                }
+                int requestedQuality=Volatile.Read(ref jpegQuality);
+                if(requestedQuality!=quality)
+                {
+                    encoder.Param[0].Dispose();
+                    quality=requestedQuality;
+                    encoder.Param[0]=new EncoderParameter(System.Drawing.Imaging.Encoder.Quality,quality);
+                }
                 var start = Environment.TickCount64;
                 try
                 {
@@ -70,11 +86,12 @@ internal static class Program
                     memory.Position = 0;
                     memory.SetLength(0);
                     image.Save(memory, jpeg, encoder);
-                    Send(stdout, 0, memory.ToArray());
+                    Send(stdout, 0, memory.GetBuffer().AsSpan(0, checked((int)memory.Length)));
                 }
                 catch (Exception ex)
                 {
                     Console.Error.WriteLine("Capture unavailable (desktop locked or permission denied): " + ex.Message);
+                    Send(stdout, 4, JsonSerializer.SerializeToUtf8Bytes(new { error = "Capture unavailable" }));
                     Thread.Sleep(500);
                 }
                 int remaining = msPerFrame - (int)(Environment.TickCount64 - start);
@@ -93,7 +110,7 @@ internal static class Program
         }
     }
 
-    private static void Send(Stream output, byte type, byte[] payload)
+    private static void Send(Stream output, byte type, ReadOnlySpan<byte> payload)
     {
         Span<byte> header = stackalloc byte[5];
         header[0] = type;
@@ -170,6 +187,19 @@ internal static class Program
         var words = (parts.Length > 1 ? parts[1] : "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
         switch (parts[0])
         {
+            case "flow":
+                demandFrames=words.Length==1&&words[0]=="1";
+                Interlocked.Exchange(ref frameBudget,0);
+                break;
+            case "frame":
+                int budget;
+                do{budget=Volatile.Read(ref frameBudget);if(budget>=2)return;}
+                while(Interlocked.CompareExchange(ref frameBudget,budget+1,budget)!=budget);
+                break;
+            case "quality":
+                if(words.Length==1&&int.TryParse(words[0],out int requested)&&requested>=20&&requested<=90)
+                    Volatile.Write(ref jpegQuality,requested);
+                break;
             case "mv":
                 if (words.Length != 2) return;
                 if (Native.GetCursorPos(out var pos))
