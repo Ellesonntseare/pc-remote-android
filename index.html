@@ -411,6 +411,7 @@ $('typeText').addEventListener('beforeinput',e=>{
   if(liveTyping&&!live.paused&&!composing&&e.inputType==='deleteContentBackward'&&!$('typeText').value){e.preventDefault();rsTypeKey(8);}
 });
 function rsKb(){
+  window.PCRScreenTools?.restoreControls();
   $('rs').classList.add('typing');$('typePanel').classList.remove('hide');rsUpdateTypingUI();
   if(!live.paused)rsTypeStatus(liveTyping?'Live typing ready. Select a PC field before typing.':'Compose here, then tap Paste into PC.');
   $('typeText').focus();

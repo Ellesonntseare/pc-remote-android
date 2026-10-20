@@ -13,11 +13,13 @@
   const status=toolbar.querySelector('#screenConnection');
   const reconnectButton=toolbar.querySelector('#rsReconnect');
   const fullButton=toolbar.querySelector('#rsFullscreen');
+  fullButton.title='Show only the remote screen. Escape or a three-finger tap restores the controls.';
   const minus=toolbar.querySelector('#rsZoomOut');
   const plus=toolbar.querySelector('#rsZoomIn');
   const zoomButton=toolbar.querySelector('#rsZoomReset');
   const panButton=toolbar.querySelector('#rsPan');
   let zoom=1,pan=false,gesture=null,watchdog=null,lastRatio=0,reconnecting=false;
+  let fullscreenRequest=0,requestedFullscreen=false;
   const fullscreenSupported=typeof screen.requestFullscreen==='function'&&document.fullscreenEnabled!==false;
 
   function announce(text,state){
@@ -83,8 +85,9 @@
     clearWatchdog();announce(message,'disconnected');
   }
   function closed(){
+    fullscreenRequest++;requestedFullscreen=false;
     clearWatchdog();announce('Screen closed','closed');stopGesture();
-    screen.classList.remove('screenExpanded');
+    setClean(false);screen.classList.remove('screenExpanded');
     if(document.fullscreenElement===screen)document.exitFullscreen().catch(()=>{});
     setZoom(1);updateFullscreen();
   }
@@ -106,22 +109,68 @@
     try{if(rs.on){rs.m=null;rsRun();}}
     finally{reconnecting=false;}
   }
+  function setClean(enabled){
+    screen.classList.toggle('screenClean',enabled);
+    document.body.classList.toggle('screenCleanActive',enabled);
+    if(enabled){
+      rsPrefsClose();rsTypeClose();setZoom(1);stopGesture();
+      canvas.focus({preventScroll:true});
+    }
+    requestAnimationFrame(()=>layout());
+  }
   function updateFullscreen(){
     const active=document.fullscreenElement===screen;
+    if(active&&!requestedFullscreen){setClean(false);document.exitFullscreen().catch(()=>{});return;}
+    if(!active&&!screen.classList.contains('screenExpanded')){setClean(false);if(requestedFullscreen){requestedFullscreen=false;fullscreenRequest++;}}
     fullButton.textContent=active?'Exit full screen':fullscreenSupported?'Full screen':screen.classList.contains('screenExpanded')?'Show controls':'Expand view';
     fullButton.setAttribute('aria-pressed',String(active||screen.classList.contains('screenExpanded')));
     requestAnimationFrame(()=>layout());
   }
+  function restoreControls(){
+    fullscreenRequest++;requestedFullscreen=false;
+    setClean(false);screen.classList.remove('screenExpanded');
+    if(document.fullscreenElement===screen)document.exitFullscreen().catch(()=>{});
+    updateFullscreen();
+  }
   async function fullscreen(){
-    if(document.fullscreenElement===screen){await document.exitFullscreen();return;}
+    if(document.fullscreenElement===screen||screen.classList.contains('screenClean')){restoreControls();return;}
     if(fullscreenSupported){
-      try{await screen.requestFullscreen({navigationUI:'hide'});}
-      catch{msg('Full screen is unavailable here. Install PC Remote for a standalone view.');}
+      const request=++fullscreenRequest;requestedFullscreen=true;setClean(true);
+      try{
+        await screen.requestFullscreen({navigationUI:'hide'});
+        if(request!==fullscreenRequest){if(document.fullscreenElement===screen)await document.exitFullscreen();return;}
+      }catch{if(request===fullscreenRequest){requestedFullscreen=false;setClean(false);msg('Full screen is unavailable here. Install PC Remote for a standalone view.');}}
       updateFullscreen();return;
     }
-    screen.classList.toggle('screenExpanded');updateFullscreen();
-    if(screen.classList.contains('screenExpanded'))msg('Expanded view. Install PC Remote to hide the browser bars.');
+    screen.classList.add('screenExpanded');setClean(true);updateFullscreen();
   }
+
+  // Reserve a local way out before desktop input can forward Escape to Windows.
+  document.addEventListener('keydown',event=>{
+    if(event.key==='Escape'&&screen.classList.contains('screenClean')){
+      event.preventDefault();event.stopImmediatePropagation();restoreControls();
+    }
+  },true);
+  let exitTouch=null;
+  view.addEventListener('touchstart',event=>{
+    if(!screen.classList.contains('screenClean'))return;
+    if(event.touches.length>=3){
+      consume(event);
+      if(g){clearTimeout(g.lp);if(g.dr)qc('up l');g=null;}
+      exitTouch={at:performance.now(),points:Array.from(event.touches,t=>({id:t.identifier,x:t.clientX,y:t.clientY})),moved:false};
+    }else if(exitTouch)consume(event);
+  },{capture:true,passive:false});
+  view.addEventListener('touchmove',event=>{
+    if(!exitTouch)return;consume(event);
+    for(const touch of event.touches){const initial=exitTouch.points.find(p=>p.id===touch.identifier);if(initial&&Math.hypot(touch.clientX-initial.x,touch.clientY-initial.y)>20)exitTouch.moved=true;}
+  },{capture:true,passive:false});
+  view.addEventListener('touchend',event=>{
+    if(!exitTouch)return;consume(event);
+    if(event.touches.length)return;
+    const tap=!exitTouch.moved&&performance.now()-exitTouch.at<700;exitTouch=null;
+    if(tap)restoreControls();
+  },{capture:true,passive:false});
+  view.addEventListener('touchcancel',event=>{if(exitTouch){consume(event);exitTouch=null;}},{capture:true,passive:false});
 
   // Preserve the phone keyboard while pressing view controls; keyboard users
   // can still focus the buttons through normal Tab navigation.
@@ -156,6 +205,6 @@
   view.addEventListener('wheel',event=>{if(!pan)return;consume(event);view.scrollLeft+=event.deltaX;view.scrollTop+=event.deltaY;},{capture:true,passive:false});
   new ResizeObserver(()=>layout()).observe(view);
   new ResizeObserver(()=>{adaptHeight();layout();}).observe(screen);
-  window.PCRScreenTools={connecting,metadata,frame,disconnected,closed,imageBox,reconnect,setZoom};
+  window.PCRScreenTools={connecting,metadata,frame,disconnected,closed,imageBox,reconnect,setZoom,restoreControls};
   setZoom(1);updateFullscreen();
 })();

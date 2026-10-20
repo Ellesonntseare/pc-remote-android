@@ -9,3 +9,10 @@
 #rs.typing .screenTools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}#rs.typing .screenConnectionGroup{flex:1;margin:0}#rs.typing #rsZoomHint,#rs.typing #rsFullscreen,#rs.typing #rsPan{display:none}#rs.typing .screenViewGroup{gap:3px}#rs.typing .screenTools button{min-height:30px;padding:4px 7px}
 
 #rs.screenVeryShort.typing .typePanel{padding:5px 8px 6px}#rs.screenVeryShort.typing .typeTop{margin-bottom:4px}#rs.screenVeryShort.typing .typeTop strong{display:none}#rs.screenVeryShort.typing .typePanel button{min-height:28px;padding:4px 7px;font-size:11px}#rs.screenVeryShort.typing .typePanel textarea{height:38px;min-height:38px;max-height:38px;padding:6px 8px;line-height:1.3}#rs.screenVeryShort.typing .typeActions{margin-top:4px;gap:4px}#rs.screenVeryShort.typing .typeHelp{display:none}#rs.screenVeryShort.typing #typeStatus{font-size:10px;line-height:1.2;margin-top:3px;max-height:25px;overflow:auto}#rs.screenVeryShort.typing .rsbot{padding:4px;gap:4px}#rs.screenVeryShort.typing .rsbot button{padding:4px 6px;font-size:10px;min-height:28px}#rs.screenVeryShort.typing>.rsbar:first-child{padding:4px 8px}#rs.screenVeryShort.typing>.rsbar:first-child button{padding:5px 8px}
+
+/* Clean full-screen mode keeps the remote image as the only visible app UI. */
+#rs.screenClean>:not(#rsv){display:none!important}
+#rs.screenClean>#rsv{flex:1;min-height:0;width:100%;height:100%;overflow:hidden!important;scrollbar-width:none}
+#rs.screenClean>#rsv::-webkit-scrollbar{display:none}
+#rs.screenClean #rsc{outline:none!important}
+body.screenCleanActive>.msg{display:none!important}
